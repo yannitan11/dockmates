@@ -15,8 +15,11 @@ Inspired by the "tiny AI agents on your dock" trend, with original characters:
 
 - macOS 13+ (built and tested on much newer)
 - Swift command line tools (`xcode-select --install`) — no Xcode needed
-- The [`claude` CLI](https://claude.com/claude-code) installed and signed in
-  (only needed for asking questions; the pets work without it)
+- **Optional:** a logged-in `claude` command-line tool, only for open-ended
+  questions. Note the Claude **desktop app** does not provide this — you need
+  the standalone CLI installed and signed in (`claude` once to log in). The
+  pets, reminders, and dressing room all work fully without it, and the ask
+  box shows a friendly note if you ask a question with no CLI available.
 
 ## Build & run
 
@@ -30,6 +33,10 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
 ## Using it
 
 - **Click a buddy** → ask panel opens → type a question → return to send.
+- **Reminders from the ask box:** typing something like "drink water every 30
+  mins", "stretch every 2 hours", or "exercise at 6pm" sets a routine directly
+  (no Claude needed) and the buddy confirms with the schedule it understood.
+  Real questions still go to Claude.
 - While working they say "on it!" and pace; when done you get a "ta-da!" and the
   answer panel. Copy button puts the raw text on your clipboard.
 - **Right-click a buddy** (or menu bar → Dressing room) → live character

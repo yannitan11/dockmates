@@ -50,7 +50,7 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
         field.font = Theme.rounded(15, .regular)
         field.textColor = Theme.ink
         field.placeholderAttributedString = NSAttributedString(
-            string: "Ask Claude anything",
+            string: "Ask anything, or \u{201C}remind me to\u{2026}\u{201D}",
             attributes: [
                 .font: Theme.rounded(15, .regular),
                 .foregroundColor: Theme.inkSoft.withAlphaComponent(0.7),

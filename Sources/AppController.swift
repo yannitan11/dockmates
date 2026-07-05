@@ -118,6 +118,15 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func startTask(_ prompt: String, buddy: Buddy) {
+        // A reminder request is handled locally, no Claude CLI needed.
+        if let reminder = ReminderParser.parse(prompt) {
+            scheduler.add(reminder)
+            buddy.hop()
+            buddy.bubble.show("on it! " + reminder.scheduleText, for: 4.5)
+            routinePanel?.refresh()
+            return
+        }
+
         answerPanel?.orderOut(nil)
         buddy.beginThinking()
 

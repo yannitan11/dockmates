@@ -153,6 +153,13 @@ final class RoutinePanel: KeyPanel, NSTextFieldDelegate {
         rebuildList()
     }
 
+    /// Refresh the list if the panel is currently on screen (e.g. a reminder
+    /// was just added from the ask box).
+    func refresh() {
+        guard isVisible else { return }
+        rebuildList()
+    }
+
     override func cancelOperation(_ sender: Any?) {
         orderOut(nil)
     }
