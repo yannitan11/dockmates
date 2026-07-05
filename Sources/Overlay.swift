@@ -249,31 +249,36 @@ enum SnapshotRenderer {
         let withBob = Buddy(style: bobStyle, scale: 2, feetY: 22)
         withBob.x = 430
 
-        var bunStyle = BuddyStyle.bo
-        bunStyle.hatKind = .none
-        bunStyle.hairKind = .bun
-        bunStyle.hair = 0x2E2A26
-        bunStyle.scarfOn = false
-        bunStyle.hasTote = false
-        bunStyle.outfit = 0xF09A8B
-        let withBun = Buddy(style: bunStyle, scale: 2, feetY: 22)
-        withBun.x = 560
+        var longSkirt = BuddyStyle.bo
+        longSkirt.hatKind = .none
+        longSkirt.hairKind = .long
+        longSkirt.hair = 0x5C4330
+        longSkirt.scarfOn = false
+        longSkirt.hasTote = false
+        longSkirt.outfit = 0xF09A8B
+        longSkirt.bottomKind = .skirt
+        longSkirt.pants = 0x3B5BDB
+        longSkirt.shoes = 0xF5F1E8
+        let withLongSkirt = Buddy(style: longSkirt, scale: 2, feetY: 22)
+        withLongSkirt.x = 560
 
-        var cropStyle = BuddyStyle.juno
-        cropStyle.hatKind = .none
-        cropStyle.hairKind = .crop
-        cropStyle.hair = 0xE8C97A
-        cropStyle.outfit = 0x4E6E52
-        let withCrop = Buddy(style: cropStyle, scale: 2, feetY: 22)
-        withCrop.x = 670
+        var bunSkirt = BuddyStyle.juno
+        bunSkirt.hatKind = .none
+        bunSkirt.hairKind = .bun
+        bunSkirt.hair = 0xE8C97A
+        bunSkirt.outfit = 0x4E6E52
+        bunSkirt.bottomKind = .skirt
+        bunSkirt.pants = 0xF2C14E
+        let withBunSkirt = Buddy(style: bunSkirt, scale: 2, feetY: 22)
+        withBunSkirt.x = 670
 
-        for buddy in [juno, bo, withBob, withBun, withCrop] {
+        for buddy in [juno, bo, withBob, withLongSkirt, withBunSkirt] {
             stage.addSublayer(buddy.root)
         }
         stage.addSublayer(juno.bubble.layer)
 
         juno.forcePose(phase: 1.15, walk: 1)
-        for buddy in [bo, withBob, withBun, withCrop] {
+        for buddy in [bo, withBob, withLongSkirt, withBunSkirt] {
             buddy.forcePose(phase: 0, walk: 0)
         }
 

@@ -28,7 +28,7 @@ final class StylePanel: KeyPanel {
     private var controls: [NSView] = []
     private var nextY: CGFloat = 0
 
-    private static let panelSize = NSSize(width: 430, height: 604)
+    private static let panelSize = NSSize(width: 430, height: 660)
     private let content = NSView(frame: NSRect(origin: .zero, size: panelSize))
 
     init() {
@@ -192,7 +192,13 @@ final class StylePanel: KeyPanel {
             }
         })
 
-        addRow("Pants", Theme.clothing.map { hex in
+        addRow("Bottom", BottomKind.allCases.map { kind in
+            chip(kind.rawValue, selected: s.bottomKind == kind) { [weak self] in
+                self?.apply { $0.bottomKind = kind }
+            }
+        })
+
+        addRow("Bottom color", Theme.clothing.map { hex in
             swatch(hex, selected: s.pants == hex) { [weak self] in
                 self?.apply { $0.pants = hex }
             }

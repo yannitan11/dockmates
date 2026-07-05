@@ -2,7 +2,8 @@ import AppKit
 import QuartzCore
 
 enum HatKind: String, Codable, CaseIterable { case none, beanie, bucket }
-enum HairKind: String, Codable, CaseIterable { case none, crop, bob, bun }
+enum HairKind: String, Codable, CaseIterable { case none, crop, bob, long, bun }
+enum BottomKind: String, Codable, CaseIterable { case pants, skirt }
 enum OutfitDetail: String, Codable { case pockets, buttons }
 
 /// Everything editable about a buddy. Colors are stored as hex so the whole
@@ -17,12 +18,57 @@ struct BuddyStyle: Codable {
     var hat: UInt32
     var hairKind: HairKind
     var hair: UInt32
+    var bottomKind: BottomKind = .pants
     var glasses: Bool
     var scarfOn: Bool
     var scarf: UInt32
     var hasTote: Bool
     var outfitDetail: OutfitDetail
     var strollSpeed: CGFloat
+
+    // Custom decoding so styles saved by older builds (without newer fields
+    // like bottomKind) still load instead of silently resetting to defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        skin = try c.decode(UInt32.self, forKey: .skin)
+        outfit = try c.decode(UInt32.self, forKey: .outfit)
+        pants = try c.decode(UInt32.self, forKey: .pants)
+        shoes = try c.decode(UInt32.self, forKey: .shoes)
+        hatKind = try c.decode(HatKind.self, forKey: .hatKind)
+        hat = try c.decode(UInt32.self, forKey: .hat)
+        hairKind = try c.decode(HairKind.self, forKey: .hairKind)
+        hair = try c.decode(UInt32.self, forKey: .hair)
+        bottomKind = try c.decodeIfPresent(BottomKind.self, forKey: .bottomKind) ?? .pants
+        glasses = try c.decode(Bool.self, forKey: .glasses)
+        scarfOn = try c.decode(Bool.self, forKey: .scarfOn)
+        scarf = try c.decode(UInt32.self, forKey: .scarf)
+        hasTote = try c.decode(Bool.self, forKey: .hasTote)
+        outfitDetail = try c.decode(OutfitDetail.self, forKey: .outfitDetail)
+        strollSpeed = try c.decode(CGFloat.self, forKey: .strollSpeed)
+    }
+
+    init(name: String, skin: UInt32, outfit: UInt32, pants: UInt32, shoes: UInt32,
+         hatKind: HatKind, hat: UInt32, hairKind: HairKind, hair: UInt32,
+         bottomKind: BottomKind = .pants, glasses: Bool, scarfOn: Bool, scarf: UInt32,
+         hasTote: Bool, outfitDetail: OutfitDetail, strollSpeed: CGFloat) {
+        self.name = name
+        self.skin = skin
+        self.outfit = outfit
+        self.pants = pants
+        self.shoes = shoes
+        self.hatKind = hatKind
+        self.hat = hat
+        self.hairKind = hairKind
+        self.hair = hair
+        self.bottomKind = bottomKind
+        self.glasses = glasses
+        self.scarfOn = scarfOn
+        self.scarf = scarf
+        self.hasTote = hasTote
+        self.outfitDetail = outfitDetail
+        self.strollSpeed = strollSpeed
+    }
 
     var skinColor: NSColor { NSColor(hex: skin) }
     var outfitColor: NSColor { NSColor(hex: outfit) }
@@ -137,11 +183,15 @@ final class Buddy {
         root.addSublayer(figure)
 
         // Legs (pivot at the hip). The left-side limbs are shaded as the
-        // far side so the walk cycle reads with depth.
-        let farPants = style.pantsColor.blended(withFraction: 0.16, of: .black) ?? style.pantsColor
+        // far side so the walk cycle reads with depth. With a skirt the
+        // legs are bare skin; the "Bottom" color goes to the skirt itself.
+        let wearsSkirt = style.bottomKind == .skirt
+        let legColor = wearsSkirt ? style.skinColor : style.pantsColor
+        let legWidth: CGFloat = wearsSkirt ? 10 : 13
+        let farLeg = legColor.blended(withFraction: 0.16, of: .black) ?? legColor
         let farShoes = style.shoesColor.blended(withFraction: 0.16, of: .black) ?? style.shoesColor
-        legL = rounded(CGRect(x: 20, y: 0, width: 13, height: 32), 6, farPants)
-        legR = rounded(CGRect(x: 37, y: 0, width: 13, height: 32), 6, style.pantsColor)
+        legL = rounded(CGRect(x: wearsSkirt ? 22 : 20, y: 0, width: legWidth, height: 32), 6, farLeg)
+        legR = rounded(CGRect(x: wearsSkirt ? 38 : 37, y: 0, width: legWidth, height: 32), 6, legColor)
         for (leg, shoeColor) in [(legL, farShoes), (legR, style.shoesColor)] {
             let shoe = rounded(CGRect(x: -2, y: -2, width: 19, height: 9), 4.5, shoeColor)
             leg.addSublayer(shoe)
@@ -158,6 +208,23 @@ final class Buddy {
             arm.addSublayer(hand)
             setAnchor(arm, CGPoint(x: 0.5, y: 0.94))
             figure.addSublayer(arm)
+        }
+
+        // A-line skirt over the legs, tucked under the torso
+        if wearsSkirt {
+            let skirt = CAShapeLayer()
+            skirt.frame = root.bounds
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 16, y: 32))
+            path.addLine(to: CGPoint(x: 10, y: 16))
+            path.addQuadCurve(to: CGPoint(x: 13, y: 13), control: CGPoint(x: 10, y: 13))
+            path.addLine(to: CGPoint(x: 57, y: 13))
+            path.addQuadCurve(to: CGPoint(x: 60, y: 16), control: CGPoint(x: 60, y: 13))
+            path.addLine(to: CGPoint(x: 54, y: 32))
+            path.closeSubpath()
+            skirt.path = path
+            skirt.fillColor = style.pantsColor.cgColor
+            figure.addSublayer(skirt)
         }
 
         // Torso
@@ -200,6 +267,16 @@ final class Buddy {
         case .bob:
             let back = rounded(CGRect(x: 1, y: 4, width: 44, height: 36), 15, style.hairColor)
             headGroup.insertSublayer(back, below: head)
+            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+        case .long:
+            // Bob-style back plus two strands falling over the shoulders,
+            // keeping the chin area clear so it doesn't read as a beard
+            let back = rounded(CGRect(x: 1, y: 4, width: 44, height: 36), 15, style.hairColor)
+            headGroup.insertSublayer(back, below: head)
+            let strandL = rounded(CGRect(x: 0, y: -14, width: 12, height: 36), 6, style.hairColor)
+            let strandR = rounded(CGRect(x: 34, y: -14, width: 12, height: 36), 6, style.hairColor)
+            headGroup.insertSublayer(strandL, below: head)
+            headGroup.insertSublayer(strandR, below: head)
             headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
         case .bun:
             headGroup.addSublayer(rounded(CGRect(x: 6, y: 26, width: 34, height: 13), 9, style.hairColor))

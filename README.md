@@ -33,8 +33,9 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
 - While working they say "on it!" and pace; when done you get a "ta-da!" and the
   answer panel. Copy button puts the raw text on your clipboard.
 - **Right-click a buddy** (or menu bar → Dressing room) → live character
-  editor: skin tone, hair (crop / bob / bun) + color, hat (beanie / bucket /
-  none) + color, top, pants, shoes, plus glasses / scarf / tote toggles.
+  editor: skin tone, hair (crop / bob / long / bun) + color, hat (beanie /
+  bucket / none) + color, top, bottom (pants or skirt) + color, shoes, plus
+  glasses / scarf / tote toggles.
   Changes apply instantly on the dock and persist across restarts
   (`UserDefaults`); Reset restores the original look.
 - **Menu bar (sparkles icon):** Ask Claude, Dressing room, Pause/Resume strolling, Quit.
