@@ -3,6 +3,46 @@ import AppKit
 /// Borderless panel that can still take keyboard focus without activating the app.
 class KeyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
+
+    private var outsideClickMonitors: [Any] = []
+
+    /// Auto-dismiss the panel when the user clicks anywhere outside it
+    /// (another app, the desktop, or a Dockmate on the dock). Call after
+    /// presenting.
+    func enableOutsideClickDismiss() {
+        disableOutsideClickDismiss()
+        let events: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        // Clicks in other apps / the desktop
+        let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] _ in
+            self?.dismissIfClickedOutside()
+        })
+        if let global { outsideClickMonitors.append(global) }
+
+        // Clicks in our own other windows (e.g. the buddy overlay)
+        let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
+            self?.dismissIfClickedOutside()
+            return event
+        })
+        if let local { outsideClickMonitors.append(local) }
+    }
+
+    func disableOutsideClickDismiss() {
+        outsideClickMonitors.forEach { NSEvent.removeMonitor($0) }
+        outsideClickMonitors = []
+    }
+
+    private func dismissIfClickedOutside() {
+        guard isVisible else { return }
+        if !frame.contains(NSEvent.mouseLocation) {
+            orderOut(nil)
+        }
+    }
+
+    override func orderOut(_ sender: Any?) {
+        disableOutsideClickDismiss()
+        super.orderOut(sender)
+    }
 }
 
 final class AskPanel: KeyPanel, NSTextFieldDelegate {
@@ -88,6 +128,7 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
         setFrameOrigin(origin)
         makeKeyAndOrderFront(nil)
         makeFirstResponder(field)
+        enableOutsideClickDismiss()
     }
 
     private func captionText(_ listener: String) -> NSAttributedString {

@@ -106,6 +106,7 @@ final class StylePanel: KeyPanel {
         }
         setFrameOrigin(origin)
         makeKeyAndOrderFront(nil)
+        enableOutsideClickDismiss()
     }
 
     override func cancelOperation(_ sender: Any?) {

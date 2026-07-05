@@ -37,6 +37,8 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
   mins", "stretch every 2 hours", or "exercise at 6pm" sets a routine directly
   (no Claude needed) and the buddy confirms with the schedule it understood.
   Real questions still go to Claude.
+- **Dismissing panels:** any panel (ask, answer, dressing room, routines)
+  closes when you click outside it, press Esc, or hit its Close button.
 - While working they say "on it!" and pace; when done you get a "ta-da!" and the
   answer panel. Copy button puts the raw text on your clipboard.
 - **Drag a buddy** left or right to slide it anywhere along the dock; it

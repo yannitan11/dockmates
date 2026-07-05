@@ -144,6 +144,7 @@ final class RoutinePanel: KeyPanel, NSTextFieldDelegate {
         setFrameOrigin(origin)
         makeKeyAndOrderFront(nil)
         makeFirstResponder(field)
+        enableOutsideClickDismiss()
     }
 
     /// Layout without ordering the window in, for snapshot review.

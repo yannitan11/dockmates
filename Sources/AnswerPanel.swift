@@ -102,6 +102,7 @@ final class AnswerPanel: KeyPanel {
         }
         setFrameOrigin(origin)
         makeKeyAndOrderFront(nil)
+        enableOutsideClickDismiss()
     }
 
     @objc private func copyBody() {
