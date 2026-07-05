@@ -727,17 +727,23 @@ final class Buddy {
         nose.fillColor = Theme.blush.cgColor
         head.addSublayer(nose)
 
-        // Mouth
+        // Mouth: the classic kawaii cat "\u{03C9}" — two little dips hanging
+        // symmetrically from the nose tip (previously a lopsided one-sided
+        // hook). Each arc sweeps pi -> 0 counterclockwise, i.e. through the
+        // bottom of its circle, so both bumps dip downward.
         let mouth = CAShapeLayer()
         let mp = CGMutablePath()
-        mp.move(to: CGPoint(x: 16.5, y: 8.5))
-        mp.addLine(to: CGPoint(x: 16.5, y: 6.5))
-        mp.addArc(center: CGPoint(x: 13.5, y: 6.5), radius: 3, startAngle: 0, endAngle: -.pi, clockwise: true)
+        mp.move(to: CGPoint(x: 12.5, y: 8.3))
+        mp.addArc(center: CGPoint(x: 14.5, y: 8.3), radius: 2,
+                  startAngle: .pi, endAngle: 0, clockwise: false)
+        mp.addArc(center: CGPoint(x: 18.5, y: 8.3), radius: 2,
+                  startAngle: .pi, endAngle: 0, clockwise: false)
         mouth.path = mp
         mouth.strokeColor = Theme.ink.cgColor
         mouth.fillColor = nil
-        mouth.lineWidth = 1.1
+        mouth.lineWidth = 1.2
         mouth.lineCap = .round
+        mouth.lineJoin = .round
         head.addSublayer(mouth)
 
         // Whiskers
@@ -832,24 +838,31 @@ final class Buddy {
         head.addSublayer(eyeA)
         head.addSublayer(eyeB)
 
-        // Muzzle + big oval nose + smile + a little tongue
+        // Muzzle + big oval nose
         head.addSublayer(ellipse(CGRect(x: 9, y: 2, width: 17, height: 11),
                                  fur.blended(withFraction: 0.5, of: .white) ?? fur))
         head.addSublayer(ellipse(CGRect(x: 14, y: 9, width: 7, height: 5), NSColor(hex: 0x3A332C)))
 
-        let tongue = rounded(CGRect(x: 14.5, y: 1, width: 6, height: 6.5), 3, Theme.blush)
+        // Mouth: same cute "\u{03C9}" as the cat, centered under the nose, with a
+        // small tongue peeking out from the middle junction (drawn first so
+        // the mouth line sits over its top edge). Replaces the old floating
+        // wide arc crossing over a big tongue blob.
+        let tongue = rounded(CGRect(x: 15.9, y: 4.2, width: 3.2, height: 4), 1.6, Theme.blush)
         head.addSublayer(tongue)
 
         let mouth = CAShapeLayer()
         let mp = CGMutablePath()
-        mp.addArc(center: CGPoint(x: 17.5, y: 8), radius: 3.6,
-                  startAngle: .pi * 200 / 180, endAngle: .pi * 340 / 180,
-                  clockwise: false)
+        mp.move(to: CGPoint(x: 13.5, y: 8))
+        mp.addArc(center: CGPoint(x: 15.5, y: 8), radius: 2,
+                  startAngle: .pi, endAngle: 0, clockwise: false)
+        mp.addArc(center: CGPoint(x: 19.5, y: 8), radius: 2,
+                  startAngle: .pi, endAngle: 0, clockwise: false)
         mouth.path = mp
         mouth.strokeColor = Theme.ink.cgColor
         mouth.fillColor = nil
-        mouth.lineWidth = 1.1
+        mouth.lineWidth = 1.2
         mouth.lineCap = .round
+        mouth.lineJoin = .round
         head.addSublayer(mouth)
 
         // Cheeks
