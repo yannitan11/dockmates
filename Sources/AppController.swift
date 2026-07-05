@@ -16,6 +16,14 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var lastNudgeAt: TimeInterval = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First run ever: turn on "launch at login" by default so Dockmates
+        // shows up automatically next time the Mac starts. After that we
+        // leave it alone and respect whatever the user sets in the menu.
+        if !UserDefaults.standard.bool(forKey: "loginItemBootstrapped") {
+            UserDefaults.standard.set(true, forKey: "loginItemBootstrapped")
+            LoginItem.setEnabled(true)
+        }
+
         overlay = OverlayController()
         overlay.onBuddyClicked = { [weak self] buddy in
             self?.openAsk(for: buddy)
@@ -113,6 +121,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         pause.target = self
         menu.addItem(pause)
 
+        let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLoginItem), keyEquivalent: "")
+        login.target = self
+        login.state = LoginItem.isEnabled ? .on : .off
+        menu.addItem(login)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Dockmates", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -163,6 +176,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         watchClaude.toggle()
         sender.state = watchClaude ? .on : .off
         UserDefaults.standard.set(watchClaude, forKey: "watchClaude")
+    }
+
+    @objc private func toggleLoginItem(_ sender: NSMenuItem) {
+        let wantsEnabled = LoginItem.isEnabled == false
+        if LoginItem.setEnabled(wantsEnabled) {
+            sender.state = wantsEnabled ? .on : .off
+        }
     }
 
     @objc private func quit() {

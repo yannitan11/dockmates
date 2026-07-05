@@ -29,6 +29,12 @@ open build/Dockmates.app
 ```
 
 Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
+It launches itself automatically at login by default (toggle it from the menu
+under "Start at Login"), and you can quit it anytime from the same menu.
+Note the login item points at wherever `build/Dockmates.app` currently is; if
+you move or delete that folder, re-run `./build.sh` and reopen the app once to
+re-register it. For a permanent install, copy `build/Dockmates.app` to
+`/Applications` and open it from there instead.
 
 ## Using it
 
@@ -63,8 +69,8 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
   it in a speech bubble. Toggle reminders on/off or delete them; everything
   persists across restarts. If your Mac was asleep when a daily reminder was
   due, it fires on wake unless it's more than 90 minutes late.
-- **Menu bar (sparkles icon):** Ask Claude, Dressing room, Routines,
-  Pause/Resume strolling, Quit.
+- **Menu bar (sparkles icon):** Ask Claude, Dressing room, Routines, Notify me
+  about Claude Code, Pause/Resume strolling, Start at Login, Quit.
 - Buddies only grab your mouse when the cursor is directly over them; the rest
   of the strip stays click-through.
 
