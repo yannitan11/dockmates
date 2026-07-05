@@ -6,6 +6,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var askPanel: AskPanel?
     private var answerPanel: AnswerPanel?
     private var stylePanel: StylePanel?
+    private var routinePanel: RoutinePanel?
+    private let scheduler = ReminderScheduler()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         overlay = OverlayController()
@@ -17,6 +19,19 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         overlay.start()
         setupStatusItem()
+
+        // A free buddy hops over and delivers each reminder; if everyone is
+        // busy the scheduler retries on its next tick.
+        scheduler.deliver = { [weak self] reminder in
+            guard let self,
+                  let buddy = self.overlay.buddies.first(where: { !$0.busy }) else {
+                return false
+            }
+            buddy.celebrate()
+            buddy.bubble.show(reminder.message, for: 12)
+            return true
+        }
+        scheduler.start()
     }
 
     private func setupStatusItem() {
@@ -34,6 +49,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         let dress = NSMenuItem(title: "Dressing room", action: #selector(dressingRoomFromMenu), keyEquivalent: "d")
         dress.target = self
         menu.addItem(dress)
+
+        let routines = NSMenuItem(title: "Routines", action: #selector(routinesFromMenu), keyEquivalent: "r")
+        routines.target = self
+        menu.addItem(routines)
 
         let pause = NSMenuItem(title: "Pause strolling", action: #selector(togglePause), keyEquivalent: "")
         pause.target = self
@@ -53,6 +72,13 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     @objc private func dressingRoomFromMenu() {
         openDressingRoom(for: overlay.buddies[0])
+    }
+
+    @objc private func routinesFromMenu() {
+        let panel = routinePanel ?? RoutinePanel()
+        routinePanel = panel
+        panel.present(scheduler: scheduler,
+                      near: overlay.screenPoint(above: overlay.firstFreeBuddy()))
     }
 
     private func openDressingRoom(for buddy: Buddy) {

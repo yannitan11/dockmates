@@ -38,7 +38,13 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
   glasses / scarf / tote toggles.
   Changes apply instantly on the dock and persist across restarts
   (`UserDefaults`); Reset restores the original look.
-- **Menu bar (sparkles icon):** Ask Claude, Dressing room, Pause/Resume strolling, Quit.
+- **Routines** (menu bar → Routines): little recurring nudges. "Drink water
+  every 1h", "exercise at 6:00 pm". When one fires, a free buddy hops and says
+  it in a speech bubble. Toggle reminders on/off or delete them; everything
+  persists across restarts. If your Mac was asleep when a daily reminder was
+  due, it fires on wake unless it's more than 90 minutes late.
+- **Menu bar (sparkles icon):** Ask Claude, Dressing room, Routines,
+  Pause/Resume strolling, Quit.
 - Buddies only grab your mouse when the cursor is directly over them; the rest
   of the strip stays click-through.
 

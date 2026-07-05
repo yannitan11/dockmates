@@ -220,6 +220,30 @@ final class OverlayController {
 // MARK: - Snapshot mode (renders the buddies to a PNG for design review)
 
 enum SnapshotRenderer {
+    static func writeRoutinePanel(to path: String) {
+        let scheduler = ReminderScheduler()
+        scheduler.useSampleData([
+            Reminder(message: "drink water", isInterval: true, intervalMinutes: 60, hour: 9, minute: 0),
+            Reminder(message: "stretch", isInterval: true, intervalMinutes: 120, hour: 9, minute: 0),
+            Reminder(message: "exercise", isInterval: false, intervalMinutes: 60, hour: 18, minute: 0, enabled: false),
+        ])
+        let panel = RoutinePanel()
+        panel.prepareForSnapshot(scheduler: scheduler)
+        guard let view = panel.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            fputs("snapshot: could not render panel\n", stderr)
+            return
+        }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        do {
+            try png.write(to: URL(fileURLWithPath: path))
+            print("routines panel snapshot written to \(path)")
+        } catch {
+            fputs("snapshot: \(error.localizedDescription)\n", stderr)
+        }
+    }
+
     static func write(to path: String) {
         let width = 760
         let height = 320
