@@ -1,7 +1,7 @@
 import AppKit
 import QuartzCore
 
-enum HatKind: String, Codable, CaseIterable { case none, beanie, bucket }
+enum HatKind: String, Codable, CaseIterable { case none, beanie, bucket, cap, beret, headband, flowers }
 enum HairKind: String, Codable, CaseIterable { case none, crop, bob, long, ponytail, pigtails, bun }
 enum BottomKind: String, Codable, CaseIterable { case pants, skirt }
 enum TopKind: String, Codable, CaseIterable { case singlet, tshirt, cardigan, jacket }
@@ -480,6 +480,28 @@ final class Buddy {
             headGroup.addSublayer(rounded(CGRect(x: 7, y: 29, width: 32, height: 13), 8, style.hatColor))
             let brim = style.hatColor.blended(withFraction: 0.12, of: .black) ?? style.hatColor
             headGroup.addSublayer(ellipse(CGRect(x: 1, y: 25, width: 44, height: 8), brim))
+        case .cap:
+            // Rounded dome plus a wide, flat brim, like a baseball cap
+            let brimColor = style.hatColor.blended(withFraction: 0.15, of: .black) ?? style.hatColor
+            headGroup.addSublayer(rounded(CGRect(x: 0, y: 19, width: 24, height: 6), 3, brimColor))
+            headGroup.addSublayer(rounded(CGRect(x: 5, y: 24, width: 36, height: 18), 11, style.hatColor))
+            headGroup.addSublayer(ellipse(CGRect(x: 21, y: 40, width: 4, height: 4), brimColor))
+        case .beret:
+            // Soft rounded poof with a base trim and a little stem on top
+            headGroup.addSublayer(ellipse(CGRect(x: 2, y: 21, width: 42, height: 23), style.hatColor))
+            let trim = style.hatColor.blended(withFraction: 0.15, of: .black) ?? style.hatColor
+            headGroup.addSublayer(rounded(CGRect(x: 5, y: 23, width: 36, height: 6), 3, trim))
+            headGroup.addSublayer(ellipse(CGRect(x: 20, y: 42, width: 6, height: 6), style.hatColor))
+        case .headband:
+            // A thin band across the crown, leaving hair visible around it
+            headGroup.addSublayer(rounded(CGRect(x: 5, y: 30, width: 36, height: 6), 3, style.hatColor))
+        case .flowers:
+            // A little row of flowers across the crown, ties, or bare head
+            let petals = [Theme.blush, Theme.lilac, Theme.sky, Theme.blush]
+            for (i, cx) in [CGFloat(8), 17, 26, 35].enumerated() {
+                headGroup.addSublayer(ellipse(CGRect(x: cx, y: 32, width: 8, height: 8), petals[i]))
+                headGroup.addSublayer(ellipse(CGRect(x: cx + 2.5, y: 34.5, width: 3, height: 3), Theme.mustard))
+            }
         }
 
         // Tote bag in front

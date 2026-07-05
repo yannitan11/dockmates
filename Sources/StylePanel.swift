@@ -15,9 +15,11 @@ final class ActionButton: NSButton {
     @objc private func fire() { onClick?() }
 }
 
-/// The dressing room: live preview on top, swatch and chip rows below.
-/// Edits apply immediately to the buddy on the dock and are reported
-/// through onStyleChanged for persistence.
+/// The dressing room: live preview on top, swatch and chip rows below in a
+/// scrollable, wrapping list so growing option counts (more hats, more hair
+/// styles, ...) never overflow the fixed-width panel. Edits apply immediately
+/// to the buddy on the dock and are reported through onStyleChanged for
+/// persistence.
 final class StylePanel: KeyPanel {
     var onStyleChanged: (() -> Void)?
 
@@ -25,10 +27,12 @@ final class StylePanel: KeyPanel {
     private var currentIndex = 0
     private var previewBuddy: Buddy?
     private let previewHost = NSView()
-    private var controls: [NSView] = []
-    private var nextY: CGFloat = 0
+    private let rowsContainer = FlippedView()
+    private var rowViews: [NSView] = []
+    private var cursorY: CGFloat = 0
 
-    private static let panelSize = NSSize(width: 430, height: 728)
+    private static let panelSize = NSSize(width: 430, height: 620)
+    private let rowsWidth = panelSize.width - 40
     private let content = NSView(frame: NSRect(origin: .zero, size: panelSize))
 
     init() {
@@ -82,6 +86,21 @@ final class StylePanel: KeyPanel {
         previewHost.layer?.cornerRadius = 14
         previewHost.layer?.masksToBounds = true
         content.addSubview(previewHost)
+
+        let rule2Y = previewHost.frame.minY - 10
+        let rule2 = NSView(frame: NSRect(x: 0, y: rule2Y, width: size.width, height: 1))
+        rule2.wantsLayer = true
+        rule2.layer?.backgroundColor = Theme.hairline.cgColor
+        content.addSubview(rule2)
+
+        let scrollTop = rule2Y - 8
+        let scroll = NSScrollView(frame: NSRect(x: 20, y: 16, width: size.width - 40, height: scrollTop - 16))
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.autohidesScrollers = true
+        rowsContainer.frame = NSRect(x: 0, y: 0, width: rowsWidth, height: 10)
+        scroll.documentView = rowsContainer
+        content.addSubview(scroll)
     }
 
     func present(buddies: [Buddy], selected: Int, near point: NSPoint) {
@@ -113,6 +132,28 @@ final class StylePanel: KeyPanel {
         orderOut(nil)
     }
 
+    /// Renders the whole scrollable rows area (not just the visible window
+    /// frame) to a PNG, for design review of chip wrapping without needing
+    /// to actually scroll the live panel. Loads buddies directly, bypassing
+    /// present()'s window-ordering (no need for the panel to be on screen).
+    func snapshotFullContent(buddies: [Buddy], to path: String) {
+        self.buddies = buddies
+        currentIndex = 0
+        rebuild()
+        let full = FlippedView(frame: NSRect(x: 0, y: 0, width: rowsWidth, height: rowsContainer.frame.height))
+        full.wantsLayer = true
+        full.layer?.backgroundColor = Theme.paper.cgColor
+        for view in rowViews {
+            view.removeFromSuperview()
+            full.addSubview(view)
+        }
+        guard let rep = full.bitmapImageRepForCachingDisplay(in: full.bounds) else { return }
+        full.cacheDisplay(in: full.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("style panel full content written to \(path)")
+    }
+
     // MARK: - Editing
 
     private var style: BuddyStyle { buddies[currentIndex].style }
@@ -136,10 +177,10 @@ final class StylePanel: KeyPanel {
     // MARK: - Rows
 
     private func rebuild() {
-        controls.forEach { $0.removeFromSuperview() }
-        controls = []
+        rowViews.forEach { $0.removeFromSuperview() }
+        rowViews = []
         guard !buddies.isEmpty else { return }
-        nextY = Self.panelSize.height - 46 - 152 - 36
+        cursorY = 4
 
         let s = style
 
@@ -239,26 +280,38 @@ final class StylePanel: KeyPanel {
                 self?.apply { $0.hasTote.toggle() }
             },
         ])
+
+        rowsContainer.frame.size.height = cursorY + 8
     }
 
+    /// Lays out a label plus a run of chips/swatches, wrapping onto
+    /// additional lines within the row when they don't fit on one.
     private func addRow(_ label: String, _ items: [NSView]) {
         let labelField = NSTextField(labelWithString: label)
         labelField.font = Theme.rounded(11, .semibold)
         labelField.textColor = Theme.inkSoft
-        labelField.frame = NSRect(x: 22, y: nextY + 3, width: 76, height: 16)
-        content.addSubview(labelField)
-        controls.append(labelField)
+        labelField.frame = NSRect(x: 0, y: cursorY + 3, width: 76, height: 16)
+        rowsContainer.addSubview(labelField)
+        rowViews.append(labelField)
 
-        var x: CGFloat = 102
+        let itemStartX: CGFloat = 80
+        let lineHeight: CGFloat = 26
+        var x = itemStartX
+        var line: CGFloat = 0
         for item in items {
+            let w = item.frame.width
+            if x + w > rowsWidth, x > itemStartX {
+                line += 1
+                x = itemStartX
+            }
             var frame = item.frame
-            frame.origin = NSPoint(x: x, y: nextY)
+            frame.origin = NSPoint(x: x, y: cursorY + line * lineHeight)
             item.frame = frame
-            content.addSubview(item)
-            controls.append(item)
-            x += frame.width + 6
+            rowsContainer.addSubview(item)
+            rowViews.append(item)
+            x += w + 6
         }
-        nextY -= 34
+        cursorY += 34 + line * lineHeight
     }
 
     private func swatch(_ hex: UInt32, selected: Bool, action: @escaping () -> Void) -> ActionButton {

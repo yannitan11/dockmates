@@ -7,6 +7,19 @@ if let index = CommandLine.arguments.firstIndex(of: "--snapshot"),
     SnapshotRenderer.write(to: CommandLine.arguments[index + 1])
     exit(0)
 }
+if let index = CommandLine.arguments.firstIndex(of: "--snapshot-dressing-room"),
+   CommandLine.arguments.count > index + 1 {
+    let juno = Buddy(style: .juno, scale: 2, feetY: 8)
+    let bo = Buddy(style: .bo, scale: 2, feetY: 8)
+    let panel = StylePanel()
+    panel.snapshotFullContent(buddies: [juno, bo], to: CommandLine.arguments[index + 1])
+    exit(0)
+}
+if let index = CommandLine.arguments.firstIndex(of: "--snapshot-hats"),
+   CommandLine.arguments.count > index + 1 {
+    SnapshotRenderer.writeHats(to: CommandLine.arguments[index + 1])
+    exit(0)
+}
 if let index = CommandLine.arguments.firstIndex(of: "--snapshot-closeup"),
    CommandLine.arguments.count > index + 1 {
     SnapshotRenderer.writeCloseup(to: CommandLine.arguments[index + 1])

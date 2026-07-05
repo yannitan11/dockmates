@@ -358,6 +358,52 @@ enum SnapshotRenderer {
         print("closeup written to \(path)")
     }
 
+    static func writeHats(to path: String) {
+        let width = 900
+        let height = 420
+        let zoom: CGFloat = 2.2
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        let hats: [(HatKind, HairKind, UInt32)] = [
+            (.cap, .none, 0x5C4330),
+            (.beret, .long, 0x5C4330),
+            (.headband, .ponytail, 0xE8C97A),
+            (.flowers, .pigtails, 0x9C6B3C),
+        ]
+        var x: CGFloat = 130
+        for (hat, hair, hairColor) in hats {
+            var s = BuddyStyle.juno
+            s.hatKind = hat
+            s.hairKind = hair
+            s.hair = hairColor
+            s.glasses = false
+            let buddy = Buddy(style: s, scale: 3, feetY: 10)
+            buddy.x = x
+            stage.addSublayer(buddy.root)
+            buddy.forcePose(phase: 0, walk: 0)
+            buddy.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+            x += 210
+        }
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("hats closeup written to \(path)")
+    }
+
     static func write(to path: String) {
         let width = 900
         let height = 320
