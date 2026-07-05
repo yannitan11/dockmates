@@ -7,11 +7,21 @@ final class OverlayWindow: NSWindow {
 }
 
 final class StageView: NSView {
-    var onClick: ((NSPoint) -> Void)?
+    var onMouseDown: ((NSPoint) -> Void)?
+    var onMouseDragged: ((NSPoint) -> Void)?
+    var onMouseUp: ((NSPoint) -> Void)?
     var onRightClick: ((NSPoint) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
-        onClick?(convert(event.locationInWindow, from: nil))
+        onMouseDown?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        onMouseDragged?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onMouseUp?(convert(event.locationInWindow, from: nil))
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -32,6 +42,14 @@ final class OverlayController {
     private var timer: Timer?
     private var lastTick = CACurrentMediaTime()
     private var nextChatterAt = CACurrentMediaTime() + .random(in: 14...26)
+
+    // Drag state
+    private var pressedBuddy: Buddy?
+    private var grabOffset: CGFloat = 0
+    private var pressStartX: CGFloat = 0
+    private var didDrag = false
+    private var interacting = false
+    private let dragThreshold: CGFloat = 4
     private let feetY: CGFloat = 18
     private let stageHeight: CGFloat = 250
 
@@ -64,8 +82,14 @@ final class OverlayController {
         stageView.wantsLayer = true
         window.contentView = stageView
 
-        stageView.onClick = { [weak self] point in
-            self?.handleClick(at: point)
+        stageView.onMouseDown = { [weak self] point in
+            self?.handleMouseDown(point)
+        }
+        stageView.onMouseDragged = { [weak self] point in
+            self?.handleMouseDragged(point)
+        }
+        stageView.onMouseUp = { [weak self] point in
+            self?.handleMouseUp(point)
         }
         stageView.onRightClick = { [weak self] point in
             guard let self, let buddy = self.buddyAt(point) else { return }
@@ -183,10 +207,10 @@ final class OverlayController {
             }
         }
 
-        // Only intercept the mouse while it hovers a buddy
+        // Intercept the mouse while it hovers a buddy, or throughout a drag
         let mouse = NSEvent.mouseLocation
         let local = NSPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY)
-        let over = buddyAt(local) != nil
+        let over = interacting || buddyAt(local) != nil
         if window.ignoresMouseEvents == over {
             window.ignoresMouseEvents = !over
         }
@@ -196,14 +220,46 @@ final class OverlayController {
         buddies.first { $0.hitRect().contains(point) }
     }
 
-    private func handleClick(at point: NSPoint) {
+    private func handleMouseDown(_ point: NSPoint) {
         guard let buddy = buddyAt(point) else { return }
-        if buddy.busy {
+        pressedBuddy = buddy
+        grabOffset = point.x - buddy.x
+        pressStartX = point.x
+        didDrag = false
+        interacting = true
+    }
+
+    private func handleMouseDragged(_ point: NSPoint) {
+        guard let buddy = pressedBuddy else { return }
+        if !didDrag && abs(point.x - pressStartX) > dragThreshold {
+            didDrag = true
+            buddy.beginDrag()
+            NSCursor.closedHand.set()
+        }
+        guard didDrag else { return }
+        let newX = min(max(point.x - grabOffset, buddy.bounds.lowerBound), buddy.bounds.upperBound)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if abs(newX - buddy.x) > 0.5 { buddy.facing = newX > buddy.x ? 1 : -1 }
+        buddy.x = newX
+        buddy.bubble.layer.position = CGPoint(x: newX, y: feetY + 130)
+        CATransaction.commit()
+    }
+
+    private func handleMouseUp(_ point: NSPoint) {
+        guard let buddy = pressedBuddy else { return }
+        if didDrag {
+            buddy.endDrag()
+            NSCursor.arrow.set()
+            if !buddy.busy { buddy.bubble.show("wheee!", for: 1.4) }
+        } else if buddy.busy {
             buddy.bubble.show("still on it, one sec", for: 2)
         } else {
             buddy.hop()
             onBuddyClicked?(buddy)
         }
+        pressedBuddy = nil
+        interacting = false
     }
 
     /// Screen-space point just above a buddy's head, for anchoring panels.

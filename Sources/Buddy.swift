@@ -123,6 +123,7 @@ final class Buddy {
     var facing: CGFloat = 1
     var bounds: ClosedRange<CGFloat> = 60...600
     var wanderEnabled = true
+    private(set) var beingDragged = false
     private(set) var busy = false
     private(set) var mode: Mode = .idle
 
@@ -433,8 +434,27 @@ final class Buddy {
         hopStart = lastNow
     }
 
+    func beginDrag() {
+        beingDragged = true
+        targetX = nil
+    }
+
+    func endDrag() {
+        beingDragged = false
+        targetX = nil
+        nextWanderAt = lastNow + 2.5  // settle a moment before wandering off
+    }
+
     func tick(dt: TimeInterval, now: TimeInterval) {
         lastNow = now
+
+        // While held by the cursor the buddy stays put; the drag handler owns x.
+        if beingDragged {
+            targetX = nil
+            walkAmount += (0 - walkAmount) * min(1, dt * 8)
+            applyPose(now: now)
+            return
+        }
 
         switch mode {
         case .think:
@@ -501,8 +521,16 @@ final class Buddy {
         let swing = CGFloat(sin(walkPhase)) * CGFloat(walkAmount)
         legL.transform = CATransform3DMakeRotation(swing * 0.38, 0, 0, 1)
         legR.transform = CATransform3DMakeRotation(-swing * 0.38, 0, 0, 1)
-        armL.transform = CATransform3DMakeRotation(-swing * 0.3, 0, 0, 1)
-        armR.transform = CATransform3DMakeRotation(swing * 0.3, 0, 0, 1)
+        if beingDragged {
+            // Arms up, legs dangling straight, like being picked up
+            armL.transform = CATransform3DMakeRotation(0.65, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(-0.65, 0, 0, 1)
+            legL.transform = CATransform3DMakeRotation(0.12, 0, 0, 1)
+            legR.transform = CATransform3DMakeRotation(-0.12, 0, 0, 1)
+        } else {
+            armL.transform = CATransform3DMakeRotation(-swing * 0.3, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(swing * 0.3, 0, 0, 1)
+        }
 
         var lift = abs(CGFloat(sin(walkPhase))) * 2.4 * CGFloat(walkAmount)
         if let hs = hopStart {
@@ -513,10 +541,15 @@ final class Buddy {
                 hopStart = nil
             }
         }
+        if beingDragged { lift += 7 }
 
         let breathe = (1 - walkAmount) * 0.015 * sin(now * 2.2)
+        let held: CGFloat = beingDragged ? 1.07 : 1
         var tf = CATransform3DMakeTranslation(0, lift, 0)
-        tf = CATransform3DScale(tf, 1, 1 + CGFloat(breathe), 1)
+        if beingDragged {
+            tf = CATransform3DRotate(tf, CGFloat(sin(now * 5)) * 0.04, 0, 0, 1)  // gentle sway
+        }
+        tf = CATransform3DScale(tf, held, held + CGFloat(breathe), 1)
         figure.transform = tf
 
         if mode == .think {

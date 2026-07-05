@@ -39,6 +39,9 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
   Real questions still go to Claude.
 - While working they say "on it!" and pace; when done you get a "ta-da!" and the
   answer panel. Copy button puts the raw text on your clipboard.
+- **Drag a buddy** left or right to slide it anywhere along the dock; it
+  strikes a picked-up pose while held and resumes strolling after you drop it.
+  A plain click (no drag) still opens the ask box.
 - **Right-click a buddy** (or menu bar → Dressing room) → live character
   editor: skin tone, hair (crop / bob / long / bun) + color, hat (beanie /
   bucket / none) + color, top, bottom (pants or skirt) + color, shoes, plus
