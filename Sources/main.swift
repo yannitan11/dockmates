@@ -61,6 +61,11 @@ if CommandLine.arguments.contains("--test-conversation") {
     exit(0)
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--snapshot-rain"),
+   CommandLine.arguments.count > index + 1 {
+    SnapshotRenderer.writeRain(to: CommandLine.arguments[index + 1])
+    exit(0)
+}
 if let index = CommandLine.arguments.firstIndex(of: "--snapshot-walk"),
    CommandLine.arguments.count > index + 1 {
     SnapshotRenderer.writeWalk(to: CommandLine.arguments[index + 1])

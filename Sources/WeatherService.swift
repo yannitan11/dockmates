@@ -13,7 +13,18 @@ final class WeatherService {
     static let shared = WeatherService()
 
     private(set) var summary: String?
+    /// Lowercased condition text from the last fetch, e.g. "light rain".
+    private(set) var condition: String?
     private var timer: Timer?
+
+    /// Whether it's currently raining (or drizzling / storming), for buddies
+    /// to react to. False until the first successful fetch. Set the
+    /// DOCKMATES_FORCE_RAIN env var to preview the rain reaction on demand.
+    var isRaining: Bool {
+        if ProcessInfo.processInfo.environment["DOCKMATES_FORCE_RAIN"] != nil { return true }
+        guard let c = condition else { return false }
+        return ["rain", "drizzle", "shower", "thunder", "sleet"].contains { c.contains($0) }
+    }
 
     func start() {
         refresh()
@@ -51,7 +62,10 @@ final class WeatherService {
             let tempStr = formatter.string(from: Measurement(value: tempC, unit: UnitTemperature.celsius))
 
             let summary = "\(desc), \(tempStr) right now"
-            DispatchQueue.main.async { self?.summary = summary }
+            DispatchQueue.main.async {
+                self?.summary = summary
+                self?.condition = desc
+            }
         }.resume()
     }
 }

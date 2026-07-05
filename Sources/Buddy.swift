@@ -164,6 +164,8 @@ final class Buddy {
     private var armR = CAShapeLayer()
     private let headGroup = CALayer()
     private var eyes: [CAShapeLayer] = []
+    private var umbrella: CALayer?
+    private var raining = false
 
     // Motion state
     var x: CGFloat = 0 {
@@ -556,6 +558,96 @@ final class Buddy {
             bagSmile.lineCap = .round
             bag.addSublayer(bagSmile)
             figure.addSublayer(bag)
+        }
+
+        // Rain umbrella, held up and to the side, hidden unless it's raining.
+        // Added last so it renders over everything else.
+        let umb = buildUmbrella()
+        umb.isHidden = !raining
+        figure.addSublayer(umb)
+        umbrella = umb
+    }
+
+    /// A small umbrella held up and to the right (canopy over the head, stick
+    /// down to the right hand), so it shelters the head without the stick
+    /// crossing the face.
+    private func buildUmbrella() -> CALayer {
+        let group = CALayer()
+        group.frame = root.bounds
+
+        let canopyColor = NSColor(hex: 0xE0574E)
+        let panelColor = canopyColor.blended(withFraction: 0.16, of: .white) ?? canopyColor
+        let cx: CGFloat = 39
+        let baseY: CGFloat = 118
+        let halfW: CGFloat = 28
+        let topY: CGFloat = 133
+
+        // Canopy: a shallow dome with a scalloped lower edge for an umbrella feel
+        let canopy = CAShapeLayer()
+        canopy.frame = root.bounds
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: cx - halfW, y: baseY))
+        path.addQuadCurve(to: CGPoint(x: cx + halfW, y: baseY),
+                          control: CGPoint(x: cx, y: topY + 10))
+        let scallops = 4
+        for i in stride(from: scallops - 1, through: 0, by: -1) {
+            let x0 = cx - halfW + CGFloat(i) * (halfW * 2 / CGFloat(scallops))
+            let x1 = x0 + (halfW * 2 / CGFloat(scallops))
+            path.addQuadCurve(to: CGPoint(x: x0, y: baseY),
+                              control: CGPoint(x: (x0 + x1) / 2, y: baseY - 4))
+        }
+        path.closeSubpath()
+        canopy.path = path
+        canopy.fillColor = canopyColor.cgColor
+        group.addSublayer(canopy)
+
+        // A couple of lighter panel seams for depth
+        for dx in [-halfW * 0.5, halfW * 0.5] {
+            let seam = CAShapeLayer()
+            let sp = CGMutablePath()
+            sp.move(to: CGPoint(x: cx + dx, y: baseY))
+            sp.addLine(to: CGPoint(x: cx + dx * 0.35, y: topY + 4))
+            seam.path = sp
+            seam.strokeColor = panelColor.cgColor
+            seam.lineWidth = 1.4
+            group.addSublayer(seam)
+        }
+
+        // Ferrule nub on top
+        group.addSublayer(rounded(CGRect(x: cx - 1.2, y: topY - 1, width: 2.4, height: 6), 1.2,
+                                  NSColor(hex: 0x6B5B4E)))
+
+        // Stick runs straight down the RIGHT side to the right hand, staying
+        // clear of the head (which reaches x~53) so it never crosses the face,
+        // ending in a little J-hook handle. It attaches to the canopy's right
+        // underside rather than dead center.
+        let stick = CAShapeLayer()
+        let stickPath = CGMutablePath()
+        stickPath.move(to: CGPoint(x: 55, y: baseY - 3))
+        stickPath.addLine(to: CGPoint(x: 55, y: 40))
+        stickPath.addQuadCurve(to: CGPoint(x: 50, y: 37), control: CGPoint(x: 55, y: 35))
+        stick.path = stickPath
+        stick.strokeColor = NSColor(hex: 0x6B5B4E).cgColor
+        stick.fillColor = nil
+        stick.lineWidth = 2.4
+        stick.lineCap = .round
+        stick.lineJoin = .round
+        group.addSublayer(stick)
+
+        return group
+    }
+
+    /// Show or hide the umbrella when the weather starts or stops raining.
+    func setRaining(_ value: Bool) {
+        guard value != raining else { return }
+        raining = value
+        umbrella?.isHidden = !value
+        if value, let umbrella {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.25
+            umbrella.add(fade, forKey: "fade")
         }
     }
 

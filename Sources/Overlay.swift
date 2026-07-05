@@ -64,6 +64,13 @@ final class OverlayController {
 
     private let greetings = ["hey!", "oh hi!", "fancy seeing you here", "hiya"]
     private let hoverGreetings = ["hi!", "hello!", "hey there"]
+    private let rainChatter = [
+        "brr, so wet out",
+        "good thing i packed a brolly",
+        "rain rain go away",
+        "staying dry over here",
+        "splish splash",
+    ]
 
     // A minority of greetings turn into a little back-and-forth instead of a
     // single word. One buddy asks, the other answers after a beat.
@@ -212,12 +219,15 @@ final class OverlayController {
         let dt = min(0.1, now - lastTick)
         lastTick = now
 
+        let raining = WeatherService.shared.isRaining
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
         for buddy in buddies {
             buddy.tick(dt: dt, now: now)
             buddy.bubble.layer.position = CGPoint(x: buddy.x, y: feetY + 130)
+            buddy.setRaining(raining)  // pops the umbrella when it's wet out
 
             if buddy.mode == .think {
                 let elapsed = buddy.thinkElapsed
@@ -238,11 +248,12 @@ final class OverlayController {
 
         CATransaction.commit()
 
-        // Idle chatter
+        // Idle chatter (rain-flavored when it's actually raining)
         if now >= nextChatterAt {
             nextChatterAt = now + .random(in: 24...48)
             let idle = buddies.filter { !$0.busy && !$0.bubble.visible }
-            if let buddy = idle.randomElement(), let line = chatter.randomElement() {
+            let pool = (raining && Bool.random()) ? rainChatter : chatter
+            if let buddy = idle.randomElement(), let line = pool.randomElement() {
                 buddy.bubble.show(line, for: 3.2)
             }
         }
@@ -400,6 +411,46 @@ enum SnapshotRenderer {
 
     /// Renders one buddy across a full walk cycle (several swing phases) so
     /// the arm/leg motion can be reviewed as a filmstrip, not a single frame.
+    static func writeRain(to path: String) {
+        let width = 700
+        let height = 420
+        let zoom: CGFloat = 2.6
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        let juno = Buddy(style: .juno, scale: 3, feetY: 10)
+        juno.x = 190
+        stage.addSublayer(juno.root)
+        juno.setRaining(true)
+        juno.forcePose(phase: 1.15, walk: 1)  // mid-stride
+        juno.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+
+        let bo = Buddy(style: .bo, scale: 3, feetY: 10)
+        bo.x = 510
+        bo.facing = -1
+        stage.addSublayer(bo.root)
+        bo.setRaining(true)
+        bo.forcePose(phase: 0, walk: 0)  // standing
+        bo.root.transform = CATransform3DMakeScale(zoom * bo.facing, zoom, 1)
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("rain umbrella written to \(path)")
+    }
+
     static func writeWalk(to path: String) {
         let width = 1320
         let height = 300
