@@ -6,6 +6,7 @@ enum HairKind: String, Codable, CaseIterable { case none, crop, bob, long, ponyt
 enum BottomKind: String, Codable, CaseIterable { case pants, skirt }
 enum TopKind: String, Codable, CaseIterable { case singlet, tshirt, cardigan, jacket }
 enum NeckKind: String, Codable, CaseIterable { case none, scarf, tie, bow }
+enum Species: String, Codable { case person, cat }
 
 /// Everything editable about a buddy. Colors are stored as hex so the whole
 /// style round-trips through JSON for persistence.
@@ -26,12 +27,13 @@ struct BuddyStyle: Codable {
     var neckColor: UInt32 = 0xF2C14E
     var hasTote: Bool
     var strollSpeed: CGFloat
+    var species: Species = .person
 
     // Explicit keys so decoding can also read fields older builds used
     // (outfitDetail, scarfOn, scarf) that no longer have matching properties.
     private enum CodingKeys: String, CodingKey {
         case name, skin, outfit, pants, shoes, hatKind, hat, hairKind, hair
-        case bottomKind, topKind, glasses, neckKind, neckColor, hasTote, strollSpeed
+        case bottomKind, topKind, glasses, neckKind, neckColor, hasTote, strollSpeed, species
         case outfitDetail, scarfOn, scarf
     }
 
@@ -54,6 +56,7 @@ struct BuddyStyle: Codable {
         glasses = try c.decode(Bool.self, forKey: .glasses)
         hasTote = try c.decode(Bool.self, forKey: .hasTote)
         strollSpeed = try c.decode(CGFloat.self, forKey: .strollSpeed)
+        species = try c.decodeIfPresent(Species.self, forKey: .species) ?? .person
 
         if let top = try c.decodeIfPresent(TopKind.self, forKey: .topKind) {
             topKind = top
@@ -79,7 +82,7 @@ struct BuddyStyle: Codable {
          hatKind: HatKind, hat: UInt32, hairKind: HairKind, hair: UInt32,
          bottomKind: BottomKind = .pants, topKind: TopKind = .cardigan, glasses: Bool,
          neckKind: NeckKind = .none, neckColor: UInt32 = 0xF2C14E,
-         hasTote: Bool, strollSpeed: CGFloat) {
+         hasTote: Bool, strollSpeed: CGFloat, species: Species = .person) {
         self.name = name
         self.skin = skin
         self.outfit = outfit
@@ -96,6 +99,7 @@ struct BuddyStyle: Codable {
         self.neckColor = neckColor
         self.hasTote = hasTote
         self.strollSpeed = strollSpeed
+        self.species = species
     }
 
     // Encode only the current fields; the legacy CodingKeys cases above
@@ -118,6 +122,7 @@ struct BuddyStyle: Codable {
         try c.encode(neckColor, forKey: .neckColor)
         try c.encode(hasTote, forKey: .hasTote)
         try c.encode(strollSpeed, forKey: .strollSpeed)
+        try c.encode(species, forKey: .species)
     }
 
     var skinColor: NSColor { NSColor(hex: skin) }
@@ -145,7 +150,21 @@ struct BuddyStyle: Codable {
         hasTote: true, strollSpeed: 36
     )
 
+    // Mochi the cat. Reuses `outfit` as the fur/body color and `neckColor`
+    // as the collar; the human-only fields (hat, hair, top...) are ignored
+    // for a cat.
+    static let mochi = BuddyStyle(
+        name: "Mochi",
+        skin: 0xF3C9A6, outfit: 0xE7A867, pants: 0x2E2A26, shoes: 0x2E2A26,
+        hatKind: .none, hat: 0x2E2A26,
+        hairKind: .none, hair: 0x2E2A26,
+        topKind: .cardigan, glasses: false, neckKind: .none, neckColor: 0xE0574E,
+        hasTote: false, strollSpeed: 52, species: .cat
+    )
+
     static var defaults: [BuddyStyle] { [.juno, .bo] }
+    /// Every dockmate that can appear on the dock.
+    static var roster: [BuddyStyle] { [.juno, .bo, .mochi] }
 }
 
 final class Buddy {
@@ -166,6 +185,13 @@ final class Buddy {
     private var eyes: [CAShapeLayer] = []
     private var umbrella: CALayer?
     private var raining = false
+    private var catLegs: [CAShapeLayer] = []
+    private var catTail: CAShapeLayer?
+
+    var isCat: Bool { style.species == .cat }
+    /// Where the speech bubble should sit above this dockmate (a cat is
+    /// shorter, so its bubble hangs lower than a person's).
+    var bubbleY: CGFloat { feetY + (isCat ? 84 : 130) }
 
     // Motion state
     var x: CGFloat = 0 {
@@ -218,6 +244,9 @@ final class Buddy {
         figure.sublayers?.forEach { $0.removeFromSuperlayer() }
         headGroup.sublayers?.forEach { $0.removeFromSuperlayer() }
         eyes = []
+        catLegs = []
+        catTail = nil
+        umbrella = nil
         buildLayers()
         applyContentsScale(root, scale)
         root.position = CGPoint(x: x, y: feetY)
@@ -240,6 +269,11 @@ final class Buddy {
         figure.frame = root.bounds
         figure.transform = CATransform3DIdentity
         root.addSublayer(figure)
+
+        if isCat {
+            buildCat()
+            return
+        }
 
         // Legs (pivot at the hip). The left-side limbs are shaded as the
         // far side so the walk cycle reads with depth. With a skirt the
@@ -568,6 +602,142 @@ final class Buddy {
         umbrella = umb
     }
 
+    // MARK: - Cat art
+
+    /// A chunky side-profile cat (facing right by default; the whole root
+    /// flips for direction). Body + tail + 4 legs + a big round head with
+    /// ears and a little face. Populates `catLegs`, `catTail`, and `eyes` so
+    /// the walk, tail sway, and blink animate in applyPose.
+    private func buildCat() {
+        let fur = style.outfitColor
+        let shade = fur.blended(withFraction: 0.16, of: .black) ?? fur
+        let bellyLight = fur.blended(withFraction: 0.30, of: .white) ?? fur
+
+        // Tail behind the body, sways from its base
+        let tail = CAShapeLayer()
+        tail.frame = root.bounds
+        let tp = CGMutablePath()
+        tp.move(to: CGPoint(x: 12, y: 20))
+        tp.addCurve(to: CGPoint(x: 6, y: 44),
+                    control1: CGPoint(x: 0, y: 22), control2: CGPoint(x: 1, y: 40))
+        tail.path = tp
+        tail.strokeColor = fur.cgColor
+        tail.fillColor = nil
+        tail.lineWidth = 8
+        tail.lineCap = .round
+        setAnchor(tail, CGPoint(x: 12.0 / 70, y: 20.0 / 122))
+        figure.addSublayer(tail)
+        catTail = tail
+
+        // Far legs (behind the body), shaded. Order in catLegs: [back-far,
+        // front-far, back-near, front-near] — used for a diagonal gait.
+        for lx in [CGFloat(15), 39] {
+            let leg = rounded(CGRect(x: lx, y: 0, width: 8, height: 16), 4, shade)
+            setAnchor(leg, CGPoint(x: 0.5, y: 0.9))
+            figure.addSublayer(leg)
+            catLegs.append(leg)
+        }
+
+        // Body
+        let body = rounded(CGRect(x: 9, y: 11, width: 44, height: 25), 12, fur)
+        body.addSublayer(rounded(CGRect(x: 8, y: 2, width: 22, height: 12), 6, bellyLight)) // light belly
+        figure.addSublayer(body)
+
+        // Collar (a little band at the neck)
+        figure.addSublayer(rounded(CGRect(x: 36, y: 24, width: 16, height: 4), 2, style.neckColorValue))
+
+        // Near legs (in front of the body), full color, with little paws
+        for lx in [CGFloat(18), 42] {
+            let leg = rounded(CGRect(x: lx, y: 0, width: 8, height: 16), 4, fur)
+            leg.addSublayer(ellipse(CGRect(x: 0.5, y: -1, width: 7, height: 5), shade))
+            setAnchor(leg, CGPoint(x: 0.5, y: 0.9))
+            figure.addSublayer(leg)
+            catLegs.append(leg)
+        }
+
+        // Head group (so a subtle think-tilt can pivot at the neck)
+        headGroup.frame = CGRect(x: 32, y: 24, width: 34, height: 40)
+        setAnchor(headGroup, CGPoint(x: 0.4, y: 0.1))
+        figure.addSublayer(headGroup)
+
+        // Ears (in headGroup-local coords)
+        for ex in [CGFloat(5), 20] {
+            let ear = CAShapeLayer()
+            ear.frame = headGroup.bounds
+            let ep = CGMutablePath()
+            ep.move(to: CGPoint(x: ex, y: 24))
+            ep.addLine(to: CGPoint(x: ex + 4, y: 36))
+            ep.addLine(to: CGPoint(x: ex + 11, y: 26))
+            ep.closeSubpath()
+            ear.path = ep
+            ear.fillColor = fur.cgColor
+            headGroup.addSublayer(ear)
+            let inner = CAShapeLayer()
+            let ip = CGMutablePath()
+            ip.move(to: CGPoint(x: ex + 3, y: 26))
+            ip.addLine(to: CGPoint(x: ex + 5, y: 32))
+            ip.addLine(to: CGPoint(x: ex + 8.5, y: 27))
+            ip.closeSubpath()
+            inner.path = ip
+            inner.fillColor = (Theme.blush.blended(withFraction: 0.2, of: fur) ?? Theme.blush).cgColor
+            headGroup.addSublayer(inner)
+        }
+
+        // Head
+        let head = ellipse(CGRect(x: 2, y: 2, width: 30, height: 28), fur)
+        headGroup.addSublayer(head)
+
+        // Eyes (blinkable)
+        let eyeA = ellipse(CGRect(x: 11, y: 14, width: 4.5, height: 5), Theme.ink)
+        let eyeB = ellipse(CGRect(x: 21, y: 14, width: 4.5, height: 5), Theme.ink)
+        eyes = [eyeA, eyeB]
+        head.addSublayer(eyeA)
+        head.addSublayer(eyeB)
+
+        // Cheeks
+        head.addSublayer(ellipse(CGRect(x: 6, y: 9, width: 5, height: 3.5), Theme.blush.withAlphaComponent(0.55)))
+        head.addSublayer(ellipse(CGRect(x: 22, y: 9, width: 5, height: 3.5), Theme.blush.withAlphaComponent(0.55)))
+
+        // Nose
+        let nose = CAShapeLayer()
+        let np = CGMutablePath()
+        np.move(to: CGPoint(x: 14.5, y: 11))
+        np.addLine(to: CGPoint(x: 18.5, y: 11))
+        np.addLine(to: CGPoint(x: 16.5, y: 8.5))
+        np.closeSubpath()
+        nose.path = np
+        nose.fillColor = Theme.blush.cgColor
+        head.addSublayer(nose)
+
+        // Mouth
+        let mouth = CAShapeLayer()
+        let mp = CGMutablePath()
+        mp.move(to: CGPoint(x: 16.5, y: 8.5))
+        mp.addLine(to: CGPoint(x: 16.5, y: 6.5))
+        mp.addArc(center: CGPoint(x: 13.5, y: 6.5), radius: 3, startAngle: 0, endAngle: -.pi, clockwise: true)
+        mouth.path = mp
+        mouth.strokeColor = Theme.ink.cgColor
+        mouth.fillColor = nil
+        mouth.lineWidth = 1.1
+        mouth.lineCap = .round
+        head.addSublayer(mouth)
+
+        // Whiskers
+        for (wy, side) in [(CGFloat(11), CGFloat(-1)), (CGFloat(8), CGFloat(-1)),
+                           (CGFloat(11), CGFloat(1)), (CGFloat(8), CGFloat(1))] {
+            let w = CAShapeLayer()
+            let wp = CGMutablePath()
+            let baseX: CGFloat = side < 0 ? 12 : 21
+            wp.move(to: CGPoint(x: baseX, y: 10))
+            wp.addLine(to: CGPoint(x: baseX + side * 9, y: wy))
+            w.path = wp
+            w.strokeColor = Theme.ink.withAlphaComponent(0.5).cgColor
+            w.lineWidth = 0.9
+            w.lineCap = .round
+            head.addSublayer(w)
+        }
+    }
+
     /// A small umbrella held up and to the right (canopy over the head, stick
     /// down to the right hand), so it shelters the head without the stick
     /// crossing the face.
@@ -823,43 +993,13 @@ final class Buddy {
 
     func applyPose(now: TimeInterval) {
         let swing = CGFloat(sin(walkPhase)) * CGFloat(walkAmount)
-        legL.transform = CATransform3DMakeRotation(swing * 0.38, 0, 0, 1)
-        legR.transform = CATransform3DMakeRotation(-swing * 0.38, 0, 0, 1)
-        if beingDragged {
-            // Arms up and outward, legs dangling straight, like being picked up.
-            // Each arm's rest pose hangs straight down from a shoulder-top pivot,
-            // so a positive rotation swings the right arm outward (+x) and a
-            // negative rotation swings the left arm outward (-x); matching signs
-            // on both arms would instead cross them in toward the chest.
-            armL.transform = CATransform3DMakeRotation(-0.65, 0, 0, 1)
-            armR.transform = CATransform3DMakeRotation(0.65, 0, 0, 1)
-            legL.transform = CATransform3DMakeRotation(0.12, 0, 0, 1)
-            legR.transform = CATransform3DMakeRotation(-0.12, 0, 0, 1)
-        } else if let ws = waveStart, now - ws < waveDuration {
-            // Right arm raises outward and up beside the head (not across the
-            // face) and wiggles, like a little hello wave. See the sign note
-            // above: positive rotation is what swings this arm outward.
-            let t = now - ws
-            let raise = min(1, t / 0.18)
-            let wiggle = sin(t * 16) * 0.22 * CGFloat(min(1, (waveDuration - t) / 0.2 + 0.3))
-            armR.transform = CATransform3DMakeRotation(2.5 * CGFloat(raise) + wiggle, 0, 0, 1)
-            armL.transform = CATransform3DMakeRotation(swing * 0.3, 0, 0, 1)
+        if isCat {
+            applyCatLimbs(now: now, swing: swing)
         } else {
-            if waveStart != nil { waveStart = nil }
-            // The two arms swing out one after another, not in lockstep: the
-            // far (right) arm's swing trails the near (left) arm's by a large
-            // armLag (roughly a half-cycle), so when the near arm is fully
-            // forward the far arm is only starting out, giving a clear
-            // cascading "1... 2..." rhythm. The bigger swing amplitude makes
-            // that offset legible at dock size.
-            let armLag = 1.7
-            let nearSwing = CGFloat(sin(walkPhase)) * CGFloat(walkAmount)
-            let farSwing = CGFloat(sin(walkPhase - armLag)) * CGFloat(walkAmount)
-            armL.transform = CATransform3DMakeRotation(nearSwing * 0.42, 0, 0, 1)
-            armR.transform = CATransform3DMakeRotation(farSwing * 0.42, 0, 0, 1)
+            applyPersonLimbs(now: now, swing: swing)
         }
 
-        var lift = abs(CGFloat(sin(walkPhase))) * 2.4 * CGFloat(walkAmount)
+        var lift = abs(CGFloat(sin(walkPhase))) * (isCat ? 1.6 : 2.4) * CGFloat(walkAmount)
         if let hs = hopStart {
             let t = now - hs
             if t < hopDuration {
@@ -897,7 +1037,66 @@ final class Buddy {
         root.transform = CATransform3DMakeScale(facing, 1, 1)
     }
 
+    private func applyPersonLimbs(now: TimeInterval, swing: CGFloat) {
+        legL.transform = CATransform3DMakeRotation(swing * 0.38, 0, 0, 1)
+        legR.transform = CATransform3DMakeRotation(-swing * 0.38, 0, 0, 1)
+        if beingDragged {
+            // Arms up and outward, legs dangling straight, like being picked up.
+            // Each arm's rest pose hangs straight down from a shoulder-top pivot,
+            // so a positive rotation swings the right arm outward (+x) and a
+            // negative rotation swings the left arm outward (-x); matching signs
+            // on both arms would instead cross them in toward the chest.
+            armL.transform = CATransform3DMakeRotation(-0.65, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(0.65, 0, 0, 1)
+            legL.transform = CATransform3DMakeRotation(0.12, 0, 0, 1)
+            legR.transform = CATransform3DMakeRotation(-0.12, 0, 0, 1)
+        } else if let ws = waveStart, now - ws < waveDuration {
+            // Right arm raises outward and up beside the head (not across the
+            // face) and wiggles, like a little hello wave. See the sign note
+            // above: positive rotation is what swings this arm outward.
+            let t = now - ws
+            let raise = min(1, t / 0.18)
+            let wiggle = sin(t * 16) * 0.22 * CGFloat(min(1, (waveDuration - t) / 0.2 + 0.3))
+            armR.transform = CATransform3DMakeRotation(2.5 * CGFloat(raise) + wiggle, 0, 0, 1)
+            armL.transform = CATransform3DMakeRotation(swing * 0.3, 0, 0, 1)
+        } else {
+            if waveStart != nil { waveStart = nil }
+            // The two arms swing out one after another, not in lockstep: the
+            // far (right) arm's swing trails the near (left) arm's by a large
+            // armLag (roughly a half-cycle), so when the near arm is fully
+            // forward the far arm is only starting out, giving a clear
+            // cascading "1... 2..." rhythm. The bigger swing amplitude makes
+            // that offset legible at dock size.
+            let armLag = 1.7
+            let nearSwing = CGFloat(sin(walkPhase)) * CGFloat(walkAmount)
+            let farSwing = CGFloat(sin(walkPhase - armLag)) * CGFloat(walkAmount)
+            armL.transform = CATransform3DMakeRotation(nearSwing * 0.42, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(farSwing * 0.42, 0, 0, 1)
+        }
+    }
+
+    private func applyCatLimbs(now: TimeInterval, swing: CGFloat) {
+        if beingDragged {
+            // Legs dangle straight, tail swishes a little while held.
+            for leg in catLegs { leg.transform = CATransform3DIdentity }
+            catTail?.transform = CATransform3DMakeRotation(CGFloat(sin(now * 6)) * 0.12, 0, 0, 1)
+            return
+        }
+        // Diagonal gait: catLegs order is [back-far, front-far, back-near,
+        // front-near]; the two diagonals move opposite each other.
+        let phases: [CGFloat] = [swing, -swing, -swing, swing]
+        for (i, leg) in catLegs.enumerated() where i < phases.count {
+            leg.transform = CATransform3DMakeRotation(phases[i] * 0.5, 0, 0, 1)
+        }
+        // Tail sways gently, a touch more while walking.
+        let sway = CGFloat(sin(now * 3.2)) * (0.16 + 0.14 * CGFloat(walkAmount))
+        catTail?.transform = CATransform3DMakeRotation(sway, 0, 0, 1)
+    }
+
     func hitRect() -> CGRect {
-        CGRect(x: x - 42, y: feetY - 8, width: 84, height: 140)
+        if isCat {
+            return CGRect(x: x - 38, y: feetY - 8, width: 76, height: 84)
+        }
+        return CGRect(x: x - 42, y: feetY - 8, width: 84, height: 140)
     }
 }

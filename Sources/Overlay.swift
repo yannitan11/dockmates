@@ -39,6 +39,13 @@ final class OverlayController {
     var onBuddyClicked: ((Buddy) -> Void)?
     var onBuddyRightClicked: ((Buddy) -> Void)?
 
+    // The full roster (all possible dockmates) and which names are currently
+    // shown. rosterStyles is the source of truth for customizations; `buddies`
+    // holds live instances for the visible ones only.
+    private(set) var rosterStyles: [BuddyStyle] = []
+    private var visibleNames: Set<String> = []
+    private let catReactions = ["meow!", "mrrp?", "purr", "mew", "prrp"]
+
     private var timer: Timer?
     private var lastTick = CACurrentMediaTime()
     private var nextChatterAt = CACurrentMediaTime() + .random(in: 14...26)
@@ -145,31 +152,9 @@ final class OverlayController {
     }
 
     func start() {
-        let scale = NSScreen.screens.first?.backingScaleFactor ?? 2
-
-        let juno = Buddy(style: .juno, scale: scale, feetY: feetY)
-        let bo = Buddy(style: .bo, scale: scale, feetY: feetY)
-        buddies = [juno, bo]
-
-        // Restore saved outfits from the dressing room
-        if let data = UserDefaults.standard.data(forKey: "buddyStyles"),
-           let styles = try? JSONDecoder().decode([BuddyStyle].self, from: data) {
-            for (buddy, style) in zip(buddies, styles) {
-                buddy.applyStyle(style)
-            }
-        }
-        for buddy in buddies {
-            stageLayer.addSublayer(buddy.root)
-            stageLayer.addSublayer(buddy.bubble.layer)
-        }
-
-        layout()
-
-        if let width = NSScreen.screens.first?.frame.width {
-            juno.x = width * 0.38
-            bo.x = width * 0.55
-            bo.facing = -1
-        }
+        rosterStyles = loadRoster()
+        visibleNames = loadVisible()
+        rebuildBuddies()
 
         window.orderFrontRegardless()
 
@@ -185,6 +170,80 @@ final class OverlayController {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+    }
+
+    // MARK: - Roster & visibility
+
+    /// Merge saved customizations (by name) onto the full default roster, so
+    /// old 2-entry saves still load and unknown/new members fall to defaults.
+    private func loadRoster() -> [BuddyStyle] {
+        let defaults = BuddyStyle.roster
+        guard let data = UserDefaults.standard.data(forKey: "buddyStyles"),
+              let saved = try? JSONDecoder().decode([BuddyStyle].self, from: data) else {
+            return defaults
+        }
+        return defaults.map { def in saved.first { $0.name == def.name } ?? def }
+    }
+
+    private func loadVisible() -> Set<String> {
+        if let arr = UserDefaults.standard.stringArray(forKey: "dockmateVisible") {
+            return Set(arr)
+        }
+        // First run of this version: show everyone (incl. the new pet) so it's
+        // discoverable; the menu lets the user hide whoever they want.
+        return ["Juno", "Bo", "Mochi"]
+    }
+
+    private func saveVisible() {
+        UserDefaults.standard.set(Array(visibleNames), forKey: "dockmateVisible")
+    }
+
+    func isVisible(_ name: String) -> Bool { visibleNames.contains(name) }
+
+    /// Show or hide a dockmate by name, rebuilding the live set on the dock.
+    func setVisible(_ name: String, _ visible: Bool) {
+        if visible { visibleNames.insert(name) } else { visibleNames.remove(name) }
+        saveVisible()
+        rebuildBuddies()
+    }
+
+    /// Copy live buddies' styles back into the roster (called before saving so
+    /// dressing-room edits to visible members persist).
+    func syncRosterFromBuddies() {
+        for buddy in buddies {
+            if let i = rosterStyles.firstIndex(where: { $0.name == buddy.style.name }) {
+                rosterStyles[i] = buddy.style
+            }
+        }
+    }
+
+    private func rebuildBuddies() {
+        let scale = NSScreen.screens.first?.backingScaleFactor ?? 2
+        for buddy in buddies {
+            buddy.root.removeFromSuperlayer()
+            buddy.bubble.layer.removeFromSuperlayer()
+        }
+
+        let visible = rosterStyles.filter { visibleNames.contains($0.name) }
+        buddies = visible.map { Buddy(style: $0, scale: scale, feetY: feetY) }
+        for buddy in buddies {
+            buddy.wanderEnabled = strolling
+            stageLayer.addSublayer(buddy.root)
+            stageLayer.addSublayer(buddy.bubble.layer)
+        }
+
+        layout()
+
+        // Spread them out across the dock so they don't overlap on spawn.
+        if !buddies.isEmpty {
+            let width = NSScreen.screens.first?.frame.width ?? 1200
+            let lo = width * 0.32, hi = width * 0.62
+            for (i, buddy) in buddies.enumerated() {
+                let t = buddies.count == 1 ? 0.5 : CGFloat(i) / CGFloat(buddies.count - 1)
+                buddy.x = lo + (hi - lo) * t
+                if i % 2 == 1 { buddy.facing = -1 }
+            }
+        }
     }
 
     func layout() {
@@ -226,7 +285,7 @@ final class OverlayController {
 
         for buddy in buddies {
             buddy.tick(dt: dt, now: now)
-            buddy.bubble.layer.position = CGPoint(x: buddy.x, y: feetY + 130)
+            buddy.bubble.layer.position = CGPoint(x: buddy.x, y: buddy.bubbleY)
             buddy.setRaining(raining)  // pops the umbrella when it's wet out
 
             if buddy.mode == .think {
@@ -351,7 +410,7 @@ final class OverlayController {
         CATransaction.setDisableActions(true)
         if abs(newX - buddy.x) > 0.5 { buddy.facing = newX > buddy.x ? 1 : -1 }
         buddy.x = newX
-        buddy.bubble.layer.position = CGPoint(x: newX, y: feetY + 130)
+        buddy.bubble.layer.position = CGPoint(x: newX, y: buddy.bubbleY)
         CATransaction.commit()
     }
 
@@ -360,7 +419,14 @@ final class OverlayController {
         if didDrag {
             buddy.endDrag()
             NSCursor.arrow.set()
-            if !buddy.busy { buddy.bubble.show("wheee!", for: 1.4) }
+            if !buddy.busy {
+                buddy.bubble.show(buddy.isCat ? catReactions.randomElement()! : "wheee!", for: 1.4)
+            }
+        } else if buddy.isCat {
+            // A cat doesn't run Claude tasks; clicking it just gets a happy
+            // little reaction.
+            buddy.hop()
+            buddy.bubble.show(catReactions.randomElement()!, for: 1.6)
         } else if buddy.busy {
             buddy.bubble.show("still on it, one sec", for: 2)
         } else {
@@ -371,14 +437,29 @@ final class OverlayController {
         interacting = false
     }
 
+    /// A happy little reaction for the pet (used for click and right-click).
+    func petReaction(_ buddy: Buddy) {
+        buddy.hop()
+        buddy.bubble.show(catReactions.randomElement()!, for: 1.6)
+    }
+
     /// Screen-space point just above a buddy's head, for anchoring panels.
     func screenPoint(above buddy: Buddy) -> NSPoint {
         NSPoint(x: window.frame.minX + buddy.x,
-                y: window.frame.minY + feetY + 165)
+                y: window.frame.minY + buddy.bubbleY + 35)
     }
 
-    func firstFreeBuddy() -> Buddy {
-        buddies.first { !$0.busy } ?? buddies[0]
+    /// First free buddy of any kind (nil if the dock is empty).
+    func firstFreeBuddy() -> Buddy? {
+        buddies.first { !$0.busy } ?? buddies.first
+    }
+
+    /// First free person buddy, preferred for Claude asks (a cat doesn't run
+    /// tasks). Falls back to any free buddy, then nil if the dock is empty.
+    func firstFreePerson() -> Buddy? {
+        buddies.first { !$0.busy && !$0.isCat }
+            ?? buddies.first { !$0.isCat }
+            ?? firstFreeBuddy()
     }
 }
 
@@ -411,6 +492,86 @@ enum SnapshotRenderer {
 
     /// Renders one buddy across a full walk cycle (several swing phases) so
     /// the arm/leg motion can be reviewed as a filmstrip, not a single frame.
+    static func writeRoster(to path: String) {
+        let width = 760
+        let height = 300
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+        let dock = CALayer()
+        dock.frame = CGRect(x: 0, y: 0, width: width, height: 24)
+        dock.backgroundColor = NSColor(hex: 0xD5CFC4).cgColor
+        stage.addSublayer(dock)
+
+        let scale: CGFloat = 2
+        let juno = Buddy(style: .juno, scale: scale, feetY: 24); juno.x = 180
+        let bo = Buddy(style: .bo, scale: scale, feetY: 24); bo.x = 380; bo.facing = -1
+        let mochi = Buddy(style: .mochi, scale: scale, feetY: 24); mochi.x = 560
+
+        for buddy in [juno, bo, mochi] {
+            stage.addSublayer(buddy.root)
+            buddy.forcePose(phase: 0, walk: 0)
+        }
+        stage.addSublayer(mochi.bubble.layer)
+        mochi.bubble.show("meow!")
+        mochi.bubble.layer.position = CGPoint(x: mochi.x, y: mochi.bubbleY)
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("roster written to \(path)")
+    }
+
+    static func writeCat(to path: String) {
+        let width = 900
+        let height = 340
+        let zoom: CGFloat = 3.0
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        // Standing, walking mid-stride, and a color variant
+        let phases: [(Double, Double, UInt32)] = [(0, 0, 0xE7A867), (1.2, 1, 0xE7A867), (0.5, 1, 0xA9A29B)]
+        var x: CGFloat = 150
+        for (phase, walk, color) in phases {
+            var s = BuddyStyle.mochi
+            s.outfit = color
+            let cat = Buddy(style: s, scale: 3, feetY: 20)
+            cat.x = x
+            stage.addSublayer(cat.root)
+            cat.forcePose(phase: phase, walk: walk)
+            cat.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+            x += 300
+        }
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("cat written to \(path)")
+    }
+
     static func writeRain(to path: String) {
         let width = 700
         let height = 420

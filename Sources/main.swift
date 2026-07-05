@@ -61,6 +61,16 @@ if CommandLine.arguments.contains("--test-conversation") {
     exit(0)
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--snapshot-roster"),
+   CommandLine.arguments.count > index + 1 {
+    SnapshotRenderer.writeRoster(to: CommandLine.arguments[index + 1])
+    exit(0)
+}
+if let index = CommandLine.arguments.firstIndex(of: "--snapshot-cat"),
+   CommandLine.arguments.count > index + 1 {
+    SnapshotRenderer.writeCat(to: CommandLine.arguments[index + 1])
+    exit(0)
+}
 if let index = CommandLine.arguments.firstIndex(of: "--snapshot-rain"),
    CommandLine.arguments.count > index + 1 {
     SnapshotRenderer.writeRain(to: CommandLine.arguments[index + 1])

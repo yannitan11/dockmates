@@ -35,7 +35,12 @@ final class AppController: NSObject, NSApplicationDelegate {
             self?.openAsk(for: buddy)
         }
         overlay.onBuddyRightClicked = { [weak self] buddy in
-            self?.openDressingRoom(for: buddy)
+            // The pet isn't dressable; right-clicking it just gets a reaction.
+            if buddy.isCat {
+                self?.overlay.petReaction(buddy)
+            } else {
+                self?.openDressingRoom(for: buddy)
+            }
         }
         overlay.onTick = { [weak self] in
             self?.trackPanels()
@@ -96,9 +101,12 @@ final class AppController: NSObject, NSApplicationDelegate {
             body = "Claude needs your input to keep going."
         }
 
-        let buddy = overlay.firstFreeBuddy()
-        buddy.celebrate()
-        buddy.bubble.show(bubble, for: 18)
+        // A pet delivering the nudge is fine and cute, but always post the
+        // system notification even if the dock is empty.
+        if let buddy = overlay.firstFreeBuddy() {
+            buddy.celebrate()
+            buddy.bubble.show(bubble, for: 18)
+        }
         notifier.post(title: title, body: body)
     }
 
@@ -121,6 +129,20 @@ final class AppController: NSObject, NSApplicationDelegate {
         let routines = NSMenuItem(title: "Routines", action: #selector(routinesFromMenu), keyEquivalent: "r")
         routines.target = self
         menu.addItem(routines)
+
+        // "On the dock" submenu: check on/off each possible dockmate.
+        let dockmatesMenu = NSMenu()
+        for style in overlay.rosterStyles {
+            let label = style.species == .cat ? "\(style.name) (cat)" : style.name
+            let item = NSMenuItem(title: label, action: #selector(toggleDockmate(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.name
+            item.state = overlay.isVisible(style.name) ? .on : .off
+            dockmatesMenu.addItem(item)
+        }
+        let dockmates = NSMenuItem(title: "On the dock", action: nil, keyEquivalent: "")
+        dockmates.submenu = dockmatesMenu
+        menu.addItem(dockmates)
 
         menu.addItem(.separator())
         let watch = NSMenuItem(title: "Notify me about Claude Code",
@@ -147,18 +169,28 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func askFromMenu() {
-        openAsk(for: overlay.firstFreeBuddy())
+        guard let buddy = overlay.firstFreePerson() else { return }
+        openAsk(for: buddy)
+    }
+
+    @objc private func toggleDockmate(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        let makeVisible = sender.state == .off
+        overlay.setVisible(name, makeVisible)
+        sender.state = makeVisible ? .on : .off
     }
 
     @objc private func dressingRoomFromMenu() {
-        openDressingRoom(for: overlay.buddies[0])
+        guard let person = overlay.buddies.first(where: { !$0.isCat }) else { return }
+        openDressingRoom(for: person)
     }
 
     @objc private func routinesFromMenu() {
+        let anchor = overlay.firstFreeBuddy().map { overlay.screenPoint(above: $0) }
+            ?? NSPoint(x: (NSScreen.main?.frame.midX ?? 400), y: 120)
         let panel = routinePanel ?? RoutinePanel()
         routinePanel = panel
-        panel.present(scheduler: scheduler,
-                      near: overlay.screenPoint(above: overlay.firstFreeBuddy()))
+        panel.present(scheduler: scheduler, near: anchor)
     }
 
     private func openDressingRoom(for buddy: Buddy) {
@@ -168,8 +200,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         panel.onStyleChanged = { [weak self] in
             self?.saveStyles()
         }
-        let index = overlay.buddies.firstIndex { $0 === buddy } ?? 0
-        panel.present(buddies: overlay.buddies, selected: index,
+        // The dressing room only edits people; the pet has a fixed look.
+        let people = overlay.buddies.filter { !$0.isCat }
+        let index = people.firstIndex { $0 === buddy } ?? 0
+        panel.present(buddies: people, selected: index,
                       near: overlay.screenPoint(above: buddy))
     }
 
@@ -201,8 +235,10 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func saveStyles() {
-        let styles = overlay.buddies.map { $0.style }
-        if let data = try? JSONEncoder().encode(styles) {
+        // Persist the whole roster (including hidden members' last-known
+        // styles), pulling in live edits first.
+        overlay.syncRosterFromBuddies()
+        if let data = try? JSONEncoder().encode(overlay.rosterStyles) {
             UserDefaults.standard.set(data, forKey: "buddyStyles")
         }
     }
