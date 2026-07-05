@@ -25,7 +25,7 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
         hasShadow = true
         level = .popUpMenu
         isMovableByWindowBackground = true
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        collectionBehavior = [.canJoinAllSpaces]
         hidesOnDeactivate = false
 
         let content = NSView(frame: NSRect(origin: .zero, size: Self.panelSize))

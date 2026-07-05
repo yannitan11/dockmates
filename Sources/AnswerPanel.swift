@@ -18,7 +18,7 @@ final class AnswerPanel: KeyPanel {
         hasShadow = true
         level = .popUpMenu
         isMovableByWindowBackground = true
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        collectionBehavior = [.canJoinAllSpaces]
         hidesOnDeactivate = false
 
         let size = Self.panelSize

@@ -49,7 +49,9 @@ final class OverlayController {
         window.backgroundColor = .clear
         window.hasShadow = false
         window.level = .statusBar
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        // No .fullScreenAuxiliary: the buddies stay off fullscreen spaces
+        // (videos, presentations) and only live where the dock lives.
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
         window.ignoresMouseEvents = true
 
         stageView.layer = stageLayer
