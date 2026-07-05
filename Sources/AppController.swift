@@ -9,6 +9,12 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var routinePanel: RoutinePanel?
     private let scheduler = ReminderScheduler()
 
+    private let watcher = ClaudeWatcher()
+    private let notifier = Notifier()
+    private let claudeBundleID = "com.anthropic.claudefordesktop"
+    private var watchClaude = UserDefaults.standard.object(forKey: "watchClaude") as? Bool ?? true
+    private var lastNudgeAt: TimeInterval = 0
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         overlay = OverlayController()
         overlay.onBuddyClicked = { [weak self] buddy in
@@ -32,6 +38,48 @@ final class AppController: NSObject, NSApplicationDelegate {
             return true
         }
         scheduler.start()
+
+        // Watch Claude Code: nudge when a session finishes or needs the user,
+        // but only when they've tabbed away from the Claude app.
+        notifier.requestAuthorization()
+        watcher.onEvent = { [weak self] event in
+            self?.handleClaudeEvent(event)
+        }
+        watcher.start()
+    }
+
+    private func handleClaudeEvent(_ event: ClaudeEvent) {
+        guard watchClaude else { return }
+
+        // Stay quiet while the user is already looking at Claude.
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == claudeBundleID { return }
+
+        let now = CACurrentMediaTime()
+        if now - lastNudgeAt < 3 { return }  // debounce bursts
+        lastNudgeAt = now
+
+        let bubble: String
+        let title: String
+        let body: String
+        switch event {
+        case .done:
+            bubble = "Claude's all done!"
+            title = "Claude Code finished"
+            body = "Your task wrapped up. Head back when you're ready."
+        case .needsPermission:
+            bubble = "Claude needs your OK"
+            title = "Claude Code needs permission"
+            body = "Claude is waiting for you to approve something."
+        case .waiting:
+            bubble = "Claude's waiting for you"
+            title = "Claude Code is waiting"
+            body = "Claude needs your input to keep going."
+        }
+
+        let buddy = overlay.firstFreeBuddy()
+        buddy.celebrate()
+        buddy.bubble.show(bubble, for: 18)
+        notifier.post(title: title, body: body)
     }
 
     private func setupStatusItem() {
@@ -53,6 +101,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         let routines = NSMenuItem(title: "Routines", action: #selector(routinesFromMenu), keyEquivalent: "r")
         routines.target = self
         menu.addItem(routines)
+
+        menu.addItem(.separator())
+        let watch = NSMenuItem(title: "Notify me about Claude Code",
+                               action: #selector(toggleWatchClaude), keyEquivalent: "")
+        watch.target = self
+        watch.state = watchClaude ? .on : .off
+        menu.addItem(watch)
 
         let pause = NSMenuItem(title: "Pause strolling", action: #selector(togglePause), keyEquivalent: "")
         pause.target = self
@@ -102,6 +157,12 @@ final class AppController: NSObject, NSApplicationDelegate {
     @objc private func togglePause(_ sender: NSMenuItem) {
         overlay.strolling.toggle()
         sender.title = overlay.strolling ? "Pause strolling" : "Resume strolling"
+    }
+
+    @objc private func toggleWatchClaude(_ sender: NSMenuItem) {
+        watchClaude.toggle()
+        sender.state = watchClaude ? .on : .off
+        UserDefaults.standard.set(watchClaude, forKey: "watchClaude")
     }
 
     @objc private func quit() {

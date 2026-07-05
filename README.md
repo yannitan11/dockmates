@@ -50,6 +50,14 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
   glasses / scarf / tote toggles.
   Changes apply instantly on the dock and persist across restarts
   (`UserDefaults`); Reset restores the original look.
+- **Claude Code watch:** the buddies nudge you when a Claude Code session
+  finishes a turn or needs your attention (a permission prompt or waiting for
+  input), so you can tab back. A buddy hops with a bubble, and a macOS
+  notification fires too (useful when you're in a fullscreen app and the dock
+  is hidden). It only nudges when Claude Code **isn't** the app you're already
+  looking at, so it stays quiet while you're actively using it. Toggle it from
+  the menu bar ("Notify me about Claude Code"). See "Claude Code hooks" below
+  for the one-time setup this relies on.
 - **Routines** (menu bar → Routines): little recurring nudges. "Drink water
   every 1h", "exercise at 6:00 pm". When one fires, a free buddy hops and says
   it in a speech bubble. Toggle reminders on/off or delete them; everything
@@ -59,6 +67,24 @@ Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
   Pause/Resume strolling, Quit.
 - Buddies only grab your mouse when the cursor is directly over them; the rest
   of the strip stays click-through.
+
+## Claude Code hooks (for the Claude Code watch feature)
+
+The "come back to Claude" nudge relies on Claude Code telling Dockmates when
+something happens. That's wired up via two hooks in your global
+`~/.claude/settings.json`:
+
+- **Stop** hook → appends a `stop` line to `~/.dockmates/events.log` when a
+  session finishes a turn.
+- **Notification** hook → appends a `notify` line (with the message) when
+  Claude Code needs permission or is waiting for input.
+
+Dockmates tails that log and nudges you. The hooks only write a line to a file;
+they change nothing else. To turn the feature off entirely, either uncheck
+"Notify me about Claude Code" in the menu (keeps the hooks but ignores them) or
+remove the `"hooks"` block from `~/.claude/settings.json`. New Claude Code
+sessions pick up the hooks automatically; an already-open session may need to
+be reopened.
 
 ## Design review mode
 
