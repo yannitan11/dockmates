@@ -68,7 +68,6 @@ final class OverlayController {
     // A minority of greetings turn into a little back-and-forth instead of a
     // single word. One buddy asks, the other answers after a beat.
     private let conversations: [(String, String)] = [
-        ("how's the weather up there?", "sunny, not a cloud in sight"),
         ("busy day?", "just the usual strolling"),
         ("seen any good downloads lately?", "nothing exciting, sadly"),
         ("you doing okay?", "yep, all good here"),
@@ -77,6 +76,25 @@ final class OverlayController {
         ("any plans for later?", "just gonna keep pacing around"),
         ("dock's looking calm today", "yeah, nice and quiet"),
     ]
+
+    // Weather chat only happens when we have real, current weather to report,
+    // so the answer is always accurate. The question is picked at random; the
+    // answer is the live summary from WeatherService.
+    private let weatherQuestions = [
+        "how's the weather out there?",
+        "what's it doing outside?",
+        "nice out today?",
+    ]
+
+    /// Returns a (question, answer) pair for a buddy exchange. When real
+    /// current weather is available, it's used about half the time so the
+    /// weather report is genuine; otherwise a canned exchange is used.
+    private func pickConversation() -> (String, String) {
+        if let weather = WeatherService.shared.summary, Bool.random() {
+            return (weatherQuestions.randomElement()!, weather)
+        }
+        return conversations.randomElement()!
+    }
 
     /// Fires every animation tick (about 30fps), after buddies and bubbles
     /// update. Lets AppController keep buddy-anchored panels glued in place.
@@ -253,7 +271,8 @@ final class OverlayController {
                     // 90s cooldown above already keeps greetings rare; this
                     // only changes what a greeting looks like, not how
                     // often one happens.
-                    if Double.random(in: 0...1) < 0.35, let pair = conversations.randomElement() {
+                    if Double.random(in: 0...1) < 0.35 {
+                        let pair = pickConversation()
                         let asker = Bool.random() ? a : b
                         let answerer = asker === a ? b : a
                         asker.bubble.show(pair.0, for: 2.6)

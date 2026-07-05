@@ -63,6 +63,9 @@ final class AppController: NSObject, NSApplicationDelegate {
             self?.handleClaudeEvent(event)
         }
         watcher.start()
+
+        // Keep real local weather cached so buddy weather-chat is accurate.
+        WeatherService.shared.start()
     }
 
     private func handleClaudeEvent(_ event: ClaudeEvent) {

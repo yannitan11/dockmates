@@ -15,6 +15,26 @@ if let index = CommandLine.arguments.firstIndex(of: "--snapshot-dressing-room"),
     panel.snapshotFullContent(buddies: [juno, bo], to: CommandLine.arguments[index + 1])
     exit(0)
 }
+// Debug: fetch and print the live weather summary, to confirm the real
+// fetch + parse works from the compiled app before relying on it.
+if CommandLine.arguments.contains("--test-weather") {
+    WeatherService.shared.start()
+    let deadline = Date().addingTimeInterval(15)
+    let timer = Timer(timeInterval: 0.5, repeats: true) { _ in
+        if let s = WeatherService.shared.summary {
+            print("weather summary: \(s)")
+            exit(0)
+        }
+        if Date() > deadline {
+            print("weather summary: (nil - fetch failed or timed out)")
+            exit(1)
+        }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    RunLoop.main.run(until: deadline.addingTimeInterval(1))
+    exit(1)
+}
+
 // Debug: force two buddies into a greeting exchange repeatedly and log their
 // bubble text over a few seconds, to confirm the question/answer sequencing
 // actually fires (not just compiles) before shipping.
