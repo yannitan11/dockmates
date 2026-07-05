@@ -84,13 +84,16 @@ delete this project folder later.
   it in a speech bubble. Toggle reminders on/off or delete them; everything
   persists across restarts. If your Mac was asleep when a daily reminder was
   due, it fires on wake unless it's more than 90 minutes late.
-- **A pet:** Mochi the cat is a third dockmate — a chunky side-profile cat
-  that strolls, blinks, and swishes its tail. Clicking or right-clicking it
-  gets a happy "meow!" (it doesn't run Claude tasks and isn't dressable in
-  this version). Juno and Bo are the two people who can talk to Claude.
+- **Pets:** Mochi the cat and Tofu the white dog are optional dockmates —
+  chunky side-profile pets that stroll, blink, and swish/wag their tails
+  (the cat sways slowly; the dog wags fast). Clicking or right-clicking one
+  gets a happy "meow!" or "woof!" (pets don't run Claude tasks and aren't
+  dressable in this version). Juno and Bo are the two people who can talk
+  to Claude.
 - **Choose who's on the dock:** menu bar → **On the dock** lists every
-  dockmate (Juno, Bo, Mochi) with a check; toggle any on or off. The choice
-  persists, and the dock happily runs with all of them, some, or none.
+  dockmate (Juno, Bo, Mochi (cat), Tofu (dog)) with a check; toggle any on
+  or off — e.g. keep just one pet, or none. The choice persists, and the
+  dock happily runs with all of them, some, or none.
 - **Menu bar (sparkles icon):** Ask Claude, Dressing room, Routines, On the
   dock, Notify me about Claude Code, Pause/Resume strolling, Start at Login,
   Quit.

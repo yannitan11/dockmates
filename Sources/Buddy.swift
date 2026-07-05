@@ -6,7 +6,7 @@ enum HairKind: String, Codable, CaseIterable { case none, crop, bob, long, ponyt
 enum BottomKind: String, Codable, CaseIterable { case pants, skirt }
 enum TopKind: String, Codable, CaseIterable { case singlet, tshirt, cardigan, jacket }
 enum NeckKind: String, Codable, CaseIterable { case none, scarf, tie, bow }
-enum Species: String, Codable { case person, cat }
+enum Species: String, Codable { case person, cat, dog }
 
 /// Everything editable about a buddy. Colors are stored as hex so the whole
 /// style round-trips through JSON for persistence.
@@ -162,9 +162,20 @@ struct BuddyStyle: Codable {
         hasTote: false, strollSpeed: 52, species: .cat
     )
 
+    // Tofu the white dog. Like the cat, `outfit` is the fur color and
+    // `neckColor` the collar; human-only fields are ignored.
+    static let tofu = BuddyStyle(
+        name: "Tofu",
+        skin: 0xF3C9A6, outfit: 0xF5F1E8, pants: 0x2E2A26, shoes: 0x2E2A26,
+        hatKind: .none, hat: 0x2E2A26,
+        hairKind: .none, hair: 0x2E2A26,
+        topKind: .cardigan, glasses: false, neckKind: .none, neckColor: 0x3B5BDB,
+        hasTote: false, strollSpeed: 58, species: .dog
+    )
+
     static var defaults: [BuddyStyle] { [.juno, .bo] }
     /// Every dockmate that can appear on the dock.
-    static var roster: [BuddyStyle] { [.juno, .bo, .mochi] }
+    static var roster: [BuddyStyle] { [.juno, .bo, .mochi, .tofu] }
 }
 
 final class Buddy {
@@ -189,9 +200,10 @@ final class Buddy {
     private var catTail: CAShapeLayer?
 
     var isCat: Bool { style.species == .cat }
-    /// Where the speech bubble should sit above this dockmate (a cat is
+    var isPet: Bool { style.species != .person }
+    /// Where the speech bubble should sit above this dockmate (a pet is
     /// shorter, so its bubble hangs lower than a person's).
-    var bubbleY: CGFloat { feetY + (isCat ? 84 : 130) }
+    var bubbleY: CGFloat { feetY + (isPet ? 84 : 130) }
 
     // Motion state
     var x: CGFloat = 0 {
@@ -270,9 +282,15 @@ final class Buddy {
         figure.transform = CATransform3DIdentity
         root.addSublayer(figure)
 
-        if isCat {
+        switch style.species {
+        case .cat:
             buildCat()
             return
+        case .dog:
+            buildDog()
+            return
+        case .person:
+            break
         }
 
         // Legs (pivot at the hip). The left-side limbs are shaded as the
@@ -738,6 +756,107 @@ final class Buddy {
         }
     }
 
+    // MARK: - Dog art
+
+    /// Same chunky body plan as the cat, dog-flavored: floppy ears hanging
+    /// beside the head instead of pointy ones on top, an up-curled wagging
+    /// tail, a muzzle with a big oval nose and a little tongue, no whiskers.
+    /// Shares catLegs/catTail/eyes so applyPetLimbs animates both species.
+    private func buildDog() {
+        let fur = style.outfitColor
+        let shade = fur.blended(withFraction: 0.14, of: .black) ?? fur
+
+        // Up-curled tail behind the body, wags from its base
+        let tail = CAShapeLayer()
+        tail.frame = root.bounds
+        let tp = CGMutablePath()
+        tp.move(to: CGPoint(x: 13, y: 22))
+        tp.addCurve(to: CGPoint(x: 5, y: 40),
+                    control1: CGPoint(x: 4, y: 26), control2: CGPoint(x: 10, y: 38))
+        tail.path = tp
+        tail.strokeColor = fur.cgColor
+        tail.fillColor = nil
+        tail.lineWidth = 7
+        tail.lineCap = .round
+        setAnchor(tail, CGPoint(x: 13.0 / 70, y: 22.0 / 122))
+        figure.addSublayer(tail)
+        catTail = tail
+
+        // Far legs (behind the body), shaded
+        for lx in [CGFloat(15), 39] {
+            let leg = rounded(CGRect(x: lx, y: 0, width: 8, height: 16), 4, shade)
+            setAnchor(leg, CGPoint(x: 0.5, y: 0.9))
+            figure.addSublayer(leg)
+            catLegs.append(leg)
+        }
+
+        // Body
+        let body = rounded(CGRect(x: 9, y: 11, width: 44, height: 25), 12, fur)
+        body.addSublayer(rounded(CGRect(x: 8, y: 2, width: 22, height: 12), 6, shade.withAlphaComponent(0.25)))
+        figure.addSublayer(body)
+
+        // Collar
+        figure.addSublayer(rounded(CGRect(x: 36, y: 24, width: 16, height: 4), 2, style.neckColorValue))
+
+        // Near legs (in front), full color with paw shading
+        for lx in [CGFloat(18), 42] {
+            let leg = rounded(CGRect(x: lx, y: 0, width: 8, height: 16), 4, fur)
+            leg.addSublayer(ellipse(CGRect(x: 0.5, y: -1, width: 7, height: 5), shade))
+            setAnchor(leg, CGPoint(x: 0.5, y: 0.9))
+            figure.addSublayer(leg)
+            catLegs.append(leg)
+        }
+
+        // Head group
+        headGroup.frame = CGRect(x: 32, y: 24, width: 34, height: 40)
+        setAnchor(headGroup, CGPoint(x: 0.4, y: 0.1))
+        figure.addSublayer(headGroup)
+
+        // Head first, then floppy ears hanging over its top corners
+        let head = ellipse(CGRect(x: 2, y: 2, width: 30, height: 28), fur)
+        headGroup.addSublayer(head)
+
+        // Floppy ears hang DOWN from the top corners of the head (slight
+        // inward tilt at the bottom), not splayed up like earmuffs.
+        for (ex, tilt) in [(CGFloat(0), CGFloat(-0.12)), (CGFloat(26), CGFloat(0.12))] {
+            let ear = rounded(CGRect(x: ex, y: 9, width: 8, height: 17), 4, shade)
+            setAnchor(ear, CGPoint(x: 0.5, y: 0.9))
+            ear.transform = CATransform3DMakeRotation(tilt, 0, 0, 1)
+            headGroup.addSublayer(ear)
+        }
+
+        // Eyes (blinkable)
+        let eyeA = ellipse(CGRect(x: 10, y: 15, width: 4.5, height: 5), Theme.ink)
+        let eyeB = ellipse(CGRect(x: 20, y: 15, width: 4.5, height: 5), Theme.ink)
+        eyes = [eyeA, eyeB]
+        head.addSublayer(eyeA)
+        head.addSublayer(eyeB)
+
+        // Muzzle + big oval nose + smile + a little tongue
+        head.addSublayer(ellipse(CGRect(x: 9, y: 2, width: 17, height: 11),
+                                 fur.blended(withFraction: 0.5, of: .white) ?? fur))
+        head.addSublayer(ellipse(CGRect(x: 14, y: 9, width: 7, height: 5), NSColor(hex: 0x3A332C)))
+
+        let tongue = rounded(CGRect(x: 14.5, y: 1, width: 6, height: 6.5), 3, Theme.blush)
+        head.addSublayer(tongue)
+
+        let mouth = CAShapeLayer()
+        let mp = CGMutablePath()
+        mp.addArc(center: CGPoint(x: 17.5, y: 8), radius: 3.6,
+                  startAngle: .pi * 200 / 180, endAngle: .pi * 340 / 180,
+                  clockwise: false)
+        mouth.path = mp
+        mouth.strokeColor = Theme.ink.cgColor
+        mouth.fillColor = nil
+        mouth.lineWidth = 1.1
+        mouth.lineCap = .round
+        head.addSublayer(mouth)
+
+        // Cheeks
+        head.addSublayer(ellipse(CGRect(x: 4, y: 10, width: 5, height: 3.5), Theme.blush.withAlphaComponent(0.5)))
+        head.addSublayer(ellipse(CGRect(x: 25, y: 10, width: 5, height: 3.5), Theme.blush.withAlphaComponent(0.5)))
+    }
+
     /// A small umbrella held up and to the right (canopy over the head, stick
     /// down to the right hand), so it shelters the head without the stick
     /// crossing the face.
@@ -993,13 +1112,13 @@ final class Buddy {
 
     func applyPose(now: TimeInterval) {
         let swing = CGFloat(sin(walkPhase)) * CGFloat(walkAmount)
-        if isCat {
-            applyCatLimbs(now: now, swing: swing)
+        if isPet {
+            applyPetLimbs(now: now, swing: swing)
         } else {
             applyPersonLimbs(now: now, swing: swing)
         }
 
-        var lift = abs(CGFloat(sin(walkPhase))) * (isCat ? 1.6 : 2.4) * CGFloat(walkAmount)
+        var lift = abs(CGFloat(sin(walkPhase))) * (isPet ? 1.6 : 2.4) * CGFloat(walkAmount)
         if let hs = hopStart {
             let t = now - hs
             if t < hopDuration {
@@ -1075,7 +1194,7 @@ final class Buddy {
         }
     }
 
-    private func applyCatLimbs(now: TimeInterval, swing: CGFloat) {
+    private func applyPetLimbs(now: TimeInterval, swing: CGFloat) {
         if beingDragged {
             // Legs dangle straight, tail swishes a little while held.
             for leg in catLegs { leg.transform = CATransform3DIdentity }
@@ -1088,13 +1207,19 @@ final class Buddy {
         for (i, leg) in catLegs.enumerated() where i < phases.count {
             leg.transform = CATransform3DMakeRotation(phases[i] * 0.5, 0, 0, 1)
         }
-        // Tail sways gently, a touch more while walking.
-        let sway = CGFloat(sin(now * 3.2)) * (0.16 + 0.14 * CGFloat(walkAmount))
+        // Tail motion: a cat sways slowly and gently; a dog wags fast and
+        // eagerly, more so while walking.
+        let sway: CGFloat
+        if style.species == .dog {
+            sway = CGFloat(sin(now * 8.5)) * (0.22 + 0.12 * CGFloat(walkAmount))
+        } else {
+            sway = CGFloat(sin(now * 3.2)) * (0.16 + 0.14 * CGFloat(walkAmount))
+        }
         catTail?.transform = CATransform3DMakeRotation(sway, 0, 0, 1)
     }
 
     func hitRect() -> CGRect {
-        if isCat {
+        if isPet {
             return CGRect(x: x - 38, y: feetY - 8, width: 76, height: 84)
         }
         return CGRect(x: x - 42, y: feetY - 8, width: 84, height: 140)

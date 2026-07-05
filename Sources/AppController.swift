@@ -35,8 +35,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             self?.openAsk(for: buddy)
         }
         overlay.onBuddyRightClicked = { [weak self] buddy in
-            // The pet isn't dressable; right-clicking it just gets a reaction.
-            if buddy.isCat {
+            // Pets aren't dressable; right-clicking one just gets a reaction.
+            if buddy.isPet {
                 self?.overlay.petReaction(buddy)
             } else {
                 self?.openDressingRoom(for: buddy)
@@ -133,7 +133,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         // "On the dock" submenu: check on/off each possible dockmate.
         let dockmatesMenu = NSMenu()
         for style in overlay.rosterStyles {
-            let label = style.species == .cat ? "\(style.name) (cat)" : style.name
+            let label = style.species == .person ? style.name : "\(style.name) (\(style.species.rawValue))"
             let item = NSMenuItem(title: label, action: #selector(toggleDockmate(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = style.name
@@ -181,7 +181,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func dressingRoomFromMenu() {
-        guard let person = overlay.buddies.first(where: { !$0.isCat }) else { return }
+        guard let person = overlay.buddies.first(where: { !$0.isPet }) else { return }
         openDressingRoom(for: person)
     }
 
@@ -200,8 +200,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         panel.onStyleChanged = { [weak self] in
             self?.saveStyles()
         }
-        // The dressing room only edits people; the pet has a fixed look.
-        let people = overlay.buddies.filter { !$0.isCat }
+        // The dressing room only edits people; the pets have fixed looks.
+        let people = overlay.buddies.filter { !$0.isPet }
         let index = people.firstIndex { $0 === buddy } ?? 0
         panel.present(buddies: people, selected: index,
                       near: overlay.screenPoint(above: buddy))

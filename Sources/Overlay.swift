@@ -45,6 +45,11 @@ final class OverlayController {
     private(set) var rosterStyles: [BuddyStyle] = []
     private var visibleNames: Set<String> = []
     private let catReactions = ["meow!", "mrrp?", "purr", "mew", "prrp"]
+    private let dogReactions = ["woof!", "arf arf!", "boof", "wruff?", "awoo"]
+
+    private func petSound(_ buddy: Buddy) -> String {
+        (buddy.style.species == .dog ? dogReactions : catReactions).randomElement()!
+    }
 
     private var timer: Timer?
     private var lastTick = CACurrentMediaTime()
@@ -189,9 +194,10 @@ final class OverlayController {
         if let arr = UserDefaults.standard.stringArray(forKey: "dockmateVisible") {
             return Set(arr)
         }
-        // First run of this version: show everyone (incl. the new pet) so it's
-        // discoverable; the menu lets the user hide whoever they want.
-        return ["Juno", "Bo", "Mochi"]
+        // First run of this version: show everyone (incl. the pets) so they're
+        // discoverable; the menu lets the user hide whoever they want (e.g.
+        // keep just one pet).
+        return ["Juno", "Bo", "Mochi", "Tofu"]
     }
 
     private func saveVisible() {
@@ -420,13 +426,13 @@ final class OverlayController {
             buddy.endDrag()
             NSCursor.arrow.set()
             if !buddy.busy {
-                buddy.bubble.show(buddy.isCat ? catReactions.randomElement()! : "wheee!", for: 1.4)
+                buddy.bubble.show(buddy.isPet ? petSound(buddy) : "wheee!", for: 1.4)
             }
-        } else if buddy.isCat {
-            // A cat doesn't run Claude tasks; clicking it just gets a happy
+        } else if buddy.isPet {
+            // A pet doesn't run Claude tasks; clicking it just gets a happy
             // little reaction.
             buddy.hop()
-            buddy.bubble.show(catReactions.randomElement()!, for: 1.6)
+            buddy.bubble.show(petSound(buddy), for: 1.6)
         } else if buddy.busy {
             buddy.bubble.show("still on it, one sec", for: 2)
         } else {
@@ -437,10 +443,10 @@ final class OverlayController {
         interacting = false
     }
 
-    /// A happy little reaction for the pet (used for click and right-click).
+    /// A happy little reaction for a pet (used for click and right-click).
     func petReaction(_ buddy: Buddy) {
         buddy.hop()
-        buddy.bubble.show(catReactions.randomElement()!, for: 1.6)
+        buddy.bubble.show(petSound(buddy), for: 1.6)
     }
 
     /// Screen-space point just above a buddy's head, for anchoring panels.
@@ -457,8 +463,8 @@ final class OverlayController {
     /// First free person buddy, preferred for Claude asks (a cat doesn't run
     /// tasks). Falls back to any free buddy, then nil if the dock is empty.
     func firstFreePerson() -> Buddy? {
-        buddies.first { !$0.busy && !$0.isCat }
-            ?? buddies.first { !$0.isCat }
+        buddies.first { !$0.busy && !$0.isPet }
+            ?? buddies.first { !$0.isPet }
             ?? firstFreeBuddy()
     }
 }
@@ -542,18 +548,19 @@ enum SnapshotRenderer {
         stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
         stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
 
-        // Standing, walking mid-stride, and a color variant
-        let phases: [(Double, Double, UInt32)] = [(0, 0, 0xE7A867), (1.2, 1, 0xE7A867), (0.5, 1, 0xA9A29B)]
-        var x: CGFloat = 150
-        for (phase, walk, color) in phases {
-            var s = BuddyStyle.mochi
-            s.outfit = color
-            let cat = Buddy(style: s, scale: 3, feetY: 20)
-            cat.x = x
-            stage.addSublayer(cat.root)
-            cat.forcePose(phase: phase, walk: walk)
-            cat.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
-            x += 300
+        // Cat standing + walking, dog standing + walking
+        let pets: [(BuddyStyle, Double, Double)] = [
+            (.mochi, 0, 0), (.mochi, 1.2, 1),
+            (.tofu, 0, 0), (.tofu, 1.2, 1),
+        ]
+        var x: CGFloat = 120
+        for (style, phase, walk) in pets {
+            let pet = Buddy(style: style, scale: 3, feetY: 20)
+            pet.x = x
+            stage.addSublayer(pet.root)
+            pet.forcePose(phase: phase, walk: walk)
+            pet.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+            x += 220
         }
 
         guard let rep = NSBitmapImageRep(
