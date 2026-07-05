@@ -8,9 +8,14 @@ final class OverlayWindow: NSWindow {
 
 final class StageView: NSView {
     var onClick: ((NSPoint) -> Void)?
+    var onRightClick: ((NSPoint) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
         onClick?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightClick?(convert(event.locationInWindow, from: nil))
     }
 }
 
@@ -22,6 +27,7 @@ final class OverlayController {
     let stageLayer = CALayer()
     private(set) var buddies: [Buddy] = []
     var onBuddyClicked: ((Buddy) -> Void)?
+    var onBuddyRightClicked: ((Buddy) -> Void)?
 
     private var timer: Timer?
     private var lastTick = CACurrentMediaTime()
@@ -61,6 +67,10 @@ final class OverlayController {
         stageView.onClick = { [weak self] point in
             self?.handleClick(at: point)
         }
+        stageView.onRightClick = { [weak self] point in
+            guard let self, let buddy = self.buddyAt(point) else { return }
+            self.onBuddyRightClicked?(buddy)
+        }
     }
 
     func start() {
@@ -69,6 +79,14 @@ final class OverlayController {
         let juno = Buddy(style: .juno, scale: scale, feetY: feetY)
         let bo = Buddy(style: .bo, scale: scale, feetY: feetY)
         buddies = [juno, bo]
+
+        // Restore saved outfits from the dressing room
+        if let data = UserDefaults.standard.data(forKey: "buddyStyles"),
+           let styles = try? JSONDecoder().decode([BuddyStyle].self, from: data) {
+            for (buddy, style) in zip(buddies, styles) {
+                buddy.applyStyle(style)
+            }
+        }
         for buddy in buddies {
             stageLayer.addSublayer(buddy.root)
             stageLayer.addSublayer(buddy.bubble.layer)
@@ -216,17 +234,48 @@ enum SnapshotRenderer {
         stage.addSublayer(dock)
 
         let juno = Buddy(style: .juno, scale: 2, feetY: 22)
-        juno.x = 240
+        juno.x = 130
         let bo = Buddy(style: .bo, scale: 2, feetY: 22)
-        bo.x = 480
+        bo.x = 280
         bo.facing = -1
 
-        stage.addSublayer(juno.root)
-        stage.addSublayer(bo.root)
+        // Dressing-room variants, for reviewing hair options
+        var bobStyle = BuddyStyle.juno
+        bobStyle.hatKind = .none
+        bobStyle.hairKind = .bob
+        bobStyle.hair = 0x5C4330
+        bobStyle.outfit = 0x3B5BDB
+        bobStyle.glasses = false
+        let withBob = Buddy(style: bobStyle, scale: 2, feetY: 22)
+        withBob.x = 430
+
+        var bunStyle = BuddyStyle.bo
+        bunStyle.hatKind = .none
+        bunStyle.hairKind = .bun
+        bunStyle.hair = 0x2E2A26
+        bunStyle.scarfOn = false
+        bunStyle.hasTote = false
+        bunStyle.outfit = 0xF09A8B
+        let withBun = Buddy(style: bunStyle, scale: 2, feetY: 22)
+        withBun.x = 560
+
+        var cropStyle = BuddyStyle.juno
+        cropStyle.hatKind = .none
+        cropStyle.hairKind = .crop
+        cropStyle.hair = 0xE8C97A
+        cropStyle.outfit = 0x4E6E52
+        let withCrop = Buddy(style: cropStyle, scale: 2, feetY: 22)
+        withCrop.x = 670
+
+        for buddy in [juno, bo, withBob, withBun, withCrop] {
+            stage.addSublayer(buddy.root)
+        }
         stage.addSublayer(juno.bubble.layer)
 
         juno.forcePose(phase: 1.15, walk: 1)
-        bo.forcePose(phase: 0, walk: 0)
+        for buddy in [bo, withBob, withBun, withCrop] {
+            buddy.forcePose(phase: 0, walk: 0)
+        }
 
         juno.bubble.layer.position = CGPoint(x: juno.x, y: 22 + 130)
         juno.bubble.show("on it!")

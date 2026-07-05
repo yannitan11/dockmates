@@ -30,6 +30,18 @@ enum Theme {
     static let sky = NSColor(hex: 0xBFD8F5)
     static let blush = NSColor(hex: 0xF09A8B)
 
+    // Dressing-room palettes
+    static let skinTones: [UInt32] = [
+        0xF5D9C0, 0xF3C9A6, 0xC98D5E, 0x8D5A3B, 0x5C3A22,
+    ]
+    static let hairShades: [UInt32] = [
+        0x2E2A26, 0x5C4330, 0x9C6B3C, 0xE8C97A, 0xB8552F, 0xC9C2B8, 0xC9B8F0,
+    ]
+    static let clothing: [UInt32] = [
+        0xFF6B2C, 0xF2C14E, 0x9DBE8D, 0x4E6E52, 0xBFD8F5,
+        0x3B5BDB, 0xC9B8F0, 0xF09A8B, 0xF5F1E8, 0x2E2A26,
+    ]
+
     static func rounded(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
         let base = NSFont.systemFont(ofSize: size, weight: weight)
         if let descriptor = base.fontDescriptor.withDesign(.rounded),

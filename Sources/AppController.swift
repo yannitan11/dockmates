@@ -5,11 +5,15 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var askPanel: AskPanel?
     private var answerPanel: AnswerPanel?
+    private var stylePanel: StylePanel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         overlay = OverlayController()
         overlay.onBuddyClicked = { [weak self] buddy in
             self?.openAsk(for: buddy)
+        }
+        overlay.onBuddyRightClicked = { [weak self] buddy in
+            self?.openDressingRoom(for: buddy)
         }
         overlay.start()
         setupStatusItem()
@@ -27,6 +31,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         ask.target = self
         menu.addItem(ask)
 
+        let dress = NSMenuItem(title: "Dressing room", action: #selector(dressingRoomFromMenu), keyEquivalent: "d")
+        dress.target = self
+        menu.addItem(dress)
+
         let pause = NSMenuItem(title: "Pause strolling", action: #selector(togglePause), keyEquivalent: "")
         pause.target = self
         menu.addItem(pause)
@@ -41,6 +49,28 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     @objc private func askFromMenu() {
         openAsk(for: overlay.firstFreeBuddy())
+    }
+
+    @objc private func dressingRoomFromMenu() {
+        openDressingRoom(for: overlay.buddies[0])
+    }
+
+    private func openDressingRoom(for buddy: Buddy) {
+        let panel = stylePanel ?? StylePanel()
+        stylePanel = panel
+        panel.onStyleChanged = { [weak self] in
+            self?.saveStyles()
+        }
+        let index = overlay.buddies.firstIndex { $0 === buddy } ?? 0
+        panel.present(buddies: overlay.buddies, selected: index,
+                      near: overlay.screenPoint(above: buddy))
+    }
+
+    private func saveStyles() {
+        let styles = overlay.buddies.map { $0.style }
+        if let data = try? JSONEncoder().encode(styles) {
+            UserDefaults.standard.set(data, forKey: "buddyStyles")
+        }
     }
 
     @objc private func togglePause(_ sender: NSMenuItem) {

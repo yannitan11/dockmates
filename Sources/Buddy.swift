@@ -1,57 +1,66 @@
 import AppKit
 import QuartzCore
 
-enum HatKind { case beanie, bucket }
+enum HatKind: String, Codable, CaseIterable { case none, beanie, bucket }
+enum HairKind: String, Codable, CaseIterable { case none, crop, bob, bun }
+enum OutfitDetail: String, Codable { case pockets, buttons }
 
-struct BuddyStyle {
-    let name: String
-    let skin: NSColor
-    let outfit: NSColor
-    let pants: NSColor
-    let shoes: NSColor
-    let hat: NSColor
-    let hatKind: HatKind
-    let glasses: Bool
-    let scarf: NSColor?
-    let hasTote: Bool
-    let strollSpeed: CGFloat
+/// Everything editable about a buddy. Colors are stored as hex so the whole
+/// style round-trips through JSON for persistence.
+struct BuddyStyle: Codable {
+    var name: String
+    var skin: UInt32
+    var outfit: UInt32
+    var pants: UInt32
+    var shoes: UInt32
+    var hatKind: HatKind
+    var hat: UInt32
+    var hairKind: HairKind
+    var hair: UInt32
+    var glasses: Bool
+    var scarfOn: Bool
+    var scarf: UInt32
+    var hasTote: Bool
+    var outfitDetail: OutfitDetail
+    var strollSpeed: CGFloat
+
+    var skinColor: NSColor { NSColor(hex: skin) }
+    var outfitColor: NSColor { NSColor(hex: outfit) }
+    var pantsColor: NSColor { NSColor(hex: pants) }
+    var shoesColor: NSColor { NSColor(hex: shoes) }
+    var hatColor: NSColor { NSColor(hex: hat) }
+    var hairColor: NSColor { NSColor(hex: hair) }
+    var scarfColor: NSColor { NSColor(hex: scarf) }
 
     static let juno = BuddyStyle(
         name: "Juno",
-        skin: Theme.skinWarm,
-        outfit: Theme.accent,
-        pants: Theme.offBlack,
-        shoes: Theme.cream,
-        hat: Theme.offBlack,
-        hatKind: .beanie,
-        glasses: true,
-        scarf: nil,
-        hasTote: false,
-        strollSpeed: 44
+        skin: 0xF3C9A6, outfit: 0xFF6B2C, pants: 0x2E2A26, shoes: 0xF5F1E8,
+        hatKind: .beanie, hat: 0x2E2A26,
+        hairKind: .none, hair: 0x2E2A26,
+        glasses: true, scarfOn: false, scarf: 0xF2C14E, hasTote: false,
+        outfitDetail: .pockets, strollSpeed: 44
     )
 
     static let bo = BuddyStyle(
         name: "Bo",
-        skin: Theme.skinTan,
-        outfit: Theme.sage,
-        pants: Theme.cream,
-        shoes: Theme.offBlack,
-        hat: Theme.lilac,
-        hatKind: .bucket,
-        glasses: false,
-        scarf: Theme.mustard,
-        hasTote: true,
-        strollSpeed: 36
+        skin: 0xC98D5E, outfit: 0x9DBE8D, pants: 0xF5F1E8, shoes: 0x2E2A26,
+        hatKind: .bucket, hat: 0xC9B8F0,
+        hairKind: .none, hair: 0x2E2A26,
+        glasses: false, scarfOn: true, scarf: 0xF2C14E, hasTote: true,
+        outfitDetail: .buttons, strollSpeed: 36
     )
+
+    static var defaults: [BuddyStyle] { [.juno, .bo] }
 }
 
 final class Buddy {
     enum Mode { case idle, think, celebrate }
 
-    let style: BuddyStyle
+    private(set) var style: BuddyStyle
     let root = CALayer()
     let bubble: SpeechBubble
     let feetY: CGFloat
+    private let scale: CGFloat
 
     private let figure = CALayer()
     private var legL = CAShapeLayer()
@@ -89,11 +98,27 @@ final class Buddy {
 
     init(style: BuddyStyle, scale: CGFloat, feetY: CGFloat) {
         self.style = style
+        self.scale = scale
         self.feetY = feetY
         self.bubble = SpeechBubble(scale: scale)
         buildLayers()
         applyContentsScale(root, scale)
         root.position = CGPoint(x: x, y: feetY)
+    }
+
+    /// Swap in a new look and redraw the character in place.
+    func applyStyle(_ newStyle: BuddyStyle) {
+        style = newStyle
+        root.sublayers?.forEach { $0.removeFromSuperlayer() }
+        figure.sublayers?.forEach { $0.removeFromSuperlayer() }
+        headGroup.sublayers?.forEach { $0.removeFromSuperlayer() }
+        eyes = []
+        buildLayers()
+        applyContentsScale(root, scale)
+        root.position = CGPoint(x: x, y: feetY)
+        nextBlinkAt = lastNow + 3  // don't restyle mid-blink
+        blinkUntil = 0
+        applyPose(now: lastNow)
     }
 
     // MARK: - Art
@@ -108,15 +133,16 @@ final class Buddy {
         root.addSublayer(shadow)
 
         figure.frame = root.bounds
+        figure.transform = CATransform3DIdentity
         root.addSublayer(figure)
 
         // Legs (pivot at the hip). The left-side limbs are shaded as the
         // far side so the walk cycle reads with depth.
-        let farPants = style.pants.blended(withFraction: 0.16, of: .black) ?? style.pants
-        let farShoes = style.shoes.blended(withFraction: 0.16, of: .black) ?? style.shoes
+        let farPants = style.pantsColor.blended(withFraction: 0.16, of: .black) ?? style.pantsColor
+        let farShoes = style.shoesColor.blended(withFraction: 0.16, of: .black) ?? style.shoesColor
         legL = rounded(CGRect(x: 20, y: 0, width: 13, height: 32), 6, farPants)
-        legR = rounded(CGRect(x: 37, y: 0, width: 13, height: 32), 6, style.pants)
-        for (leg, shoeColor) in [(legL, farShoes), (legR, style.shoes)] {
+        legR = rounded(CGRect(x: 37, y: 0, width: 13, height: 32), 6, style.pantsColor)
+        for (leg, shoeColor) in [(legL, farShoes), (legR, style.shoesColor)] {
             let shoe = rounded(CGRect(x: -2, y: -2, width: 19, height: 9), 4.5, shoeColor)
             leg.addSublayer(shoe)
             setAnchor(leg, CGPoint(x: 0.5, y: 0.95))
@@ -124,28 +150,27 @@ final class Buddy {
         }
 
         // Arms (pivot at the shoulder), tucked behind the torso
-        let farOutfit = style.outfit.blended(withFraction: 0.14, of: .black) ?? style.outfit
+        let farOutfit = style.outfitColor.blended(withFraction: 0.14, of: .black) ?? style.outfitColor
         armL = rounded(CGRect(x: 3, y: 36, width: 12, height: 30), 6, farOutfit)
-        armR = rounded(CGRect(x: 55, y: 36, width: 12, height: 30), 6, style.outfit)
+        armR = rounded(CGRect(x: 55, y: 36, width: 12, height: 30), 6, style.outfitColor)
         for arm in [armL, armR] {
-            let hand = ellipse(CGRect(x: 1.5, y: -2, width: 9, height: 9), style.skin)
+            let hand = ellipse(CGRect(x: 1.5, y: -2, width: 9, height: 9), style.skinColor)
             arm.addSublayer(hand)
             setAnchor(arm, CGPoint(x: 0.5, y: 0.94))
             figure.addSublayer(arm)
         }
 
         // Torso
-        let torso = rounded(CGRect(x: 8, y: 26, width: 54, height: 50), 16, style.outfit)
+        let torso = rounded(CGRect(x: 8, y: 26, width: 54, height: 50), 16, style.outfitColor)
         figure.addSublayer(torso)
 
         // Outfit details
-        let detailColor = style.outfit.blended(withFraction: 0.22, of: .black) ?? style.outfit
-        if style.hatKind == .beanie {
-            // Jacket pockets
+        let detailColor = style.outfitColor.blended(withFraction: 0.22, of: .black) ?? style.outfitColor
+        switch style.outfitDetail {
+        case .pockets:
             torso.addSublayer(rounded(CGRect(x: 8, y: 10, width: 13, height: 4), 2, detailColor))
             torso.addSublayer(rounded(CGRect(x: 33, y: 10, width: 13, height: 4), 2, detailColor))
-        } else {
-            // Cardigan buttons
+        case .buttons:
             for i in 0..<3 {
                 torso.addSublayer(ellipse(CGRect(x: 25.5, y: 12 + CGFloat(i) * 11, width: 3, height: 3),
                                           Theme.ink.withAlphaComponent(0.3)))
@@ -153,9 +178,9 @@ final class Buddy {
         }
 
         // Scarf sits on the torso, behind the head
-        if let scarfColor = style.scarf {
-            figure.addSublayer(rounded(CGRect(x: 18, y: 66, width: 34, height: 9), 4.5, scarfColor))
-            figure.addSublayer(rounded(CGRect(x: 38, y: 48, width: 11, height: 20), 5, scarfColor))
+        if style.scarfOn {
+            figure.addSublayer(rounded(CGRect(x: 18, y: 66, width: 34, height: 9), 4.5, style.scarfColor))
+            figure.addSublayer(rounded(CGRect(x: 38, y: 48, width: 11, height: 20), 5, style.scarfColor))
         }
 
         // Head group (tilts while thinking)
@@ -163,8 +188,23 @@ final class Buddy {
         setAnchor(headGroup, CGPoint(x: 0.5, y: 0.15))
         figure.addSublayer(headGroup)
 
-        let head = ellipse(CGRect(x: 5, y: 2, width: 36, height: 36), style.skin)
+        let head = ellipse(CGRect(x: 5, y: 2, width: 36, height: 36), style.skinColor)
         headGroup.addSublayer(head)
+
+        // Hair (behind and/or on top of the head, under any hat)
+        switch style.hairKind {
+        case .none:
+            break
+        case .crop:
+            headGroup.addSublayer(rounded(CGRect(x: 6, y: 26, width: 34, height: 13), 9, style.hairColor))
+        case .bob:
+            let back = rounded(CGRect(x: 1, y: 4, width: 44, height: 36), 15, style.hairColor)
+            headGroup.insertSublayer(back, below: head)
+            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+        case .bun:
+            headGroup.addSublayer(rounded(CGRect(x: 6, y: 26, width: 34, height: 13), 9, style.hairColor))
+            headGroup.addSublayer(ellipse(CGRect(x: 16, y: 37, width: 14, height: 11), style.hairColor))
+        }
 
         // Face (drawn facing right; the whole root flips for direction)
         let eyeA = ellipse(CGRect(x: 13, y: 15.5, width: 4, height: 4), Theme.ink)
@@ -215,13 +255,15 @@ final class Buddy {
 
         // Hat
         switch style.hatKind {
+        case .none:
+            break
         case .beanie:
-            let band = style.hat.blended(withFraction: 0.18, of: .white) ?? style.hat
-            headGroup.addSublayer(rounded(CGRect(x: 3, y: 27, width: 40, height: 15), 10, style.hat))
+            let band = style.hatColor.blended(withFraction: 0.18, of: .white) ?? style.hatColor
+            headGroup.addSublayer(rounded(CGRect(x: 3, y: 27, width: 40, height: 15), 10, style.hatColor))
             headGroup.addSublayer(rounded(CGRect(x: 3, y: 25, width: 40, height: 6), 3, band))
         case .bucket:
-            headGroup.addSublayer(rounded(CGRect(x: 7, y: 29, width: 32, height: 13), 8, style.hat))
-            let brim = style.hat.blended(withFraction: 0.12, of: .black) ?? style.hat
+            headGroup.addSublayer(rounded(CGRect(x: 7, y: 29, width: 32, height: 13), 8, style.hatColor))
+            let brim = style.hatColor.blended(withFraction: 0.12, of: .black) ?? style.hatColor
             headGroup.addSublayer(ellipse(CGRect(x: 1, y: 25, width: 44, height: 8), brim))
         }
 
