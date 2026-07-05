@@ -2,9 +2,10 @@ import AppKit
 import QuartzCore
 
 enum HatKind: String, Codable, CaseIterable { case none, beanie, bucket }
-enum HairKind: String, Codable, CaseIterable { case none, crop, bob, long, bun }
+enum HairKind: String, Codable, CaseIterable { case none, crop, bob, long, ponytail, pigtails, bun }
 enum BottomKind: String, Codable, CaseIterable { case pants, skirt }
-enum OutfitDetail: String, Codable { case pockets, buttons }
+enum TopKind: String, Codable, CaseIterable { case singlet, tshirt, cardigan, jacket }
+enum NeckKind: String, Codable, CaseIterable { case none, scarf, tie, bow }
 
 /// Everything editable about a buddy. Colors are stored as hex so the whole
 /// style round-trips through JSON for persistence.
@@ -19,15 +20,25 @@ struct BuddyStyle: Codable {
     var hairKind: HairKind
     var hair: UInt32
     var bottomKind: BottomKind = .pants
+    var topKind: TopKind = .cardigan
     var glasses: Bool
-    var scarfOn: Bool
-    var scarf: UInt32
+    var neckKind: NeckKind = .none
+    var neckColor: UInt32 = 0xF2C14E
     var hasTote: Bool
-    var outfitDetail: OutfitDetail
     var strollSpeed: CGFloat
 
+    // Explicit keys so decoding can also read fields older builds used
+    // (outfitDetail, scarfOn, scarf) that no longer have matching properties.
+    private enum CodingKeys: String, CodingKey {
+        case name, skin, outfit, pants, shoes, hatKind, hat, hairKind, hair
+        case bottomKind, topKind, glasses, neckKind, neckColor, hasTote, strollSpeed
+        case outfitDetail, scarfOn, scarf
+    }
+
     // Custom decoding so styles saved by older builds (without newer fields
-    // like bottomKind) still load instead of silently resetting to defaults.
+    // like bottomKind/topKind/neckKind) still load instead of silently
+    // resetting to defaults. Older saves used outfitDetail (pockets/buttons)
+    // and a scarfOn bool + scarf color, which map onto topKind/neckKind here.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -41,17 +52,34 @@ struct BuddyStyle: Codable {
         hair = try c.decode(UInt32.self, forKey: .hair)
         bottomKind = try c.decodeIfPresent(BottomKind.self, forKey: .bottomKind) ?? .pants
         glasses = try c.decode(Bool.self, forKey: .glasses)
-        scarfOn = try c.decode(Bool.self, forKey: .scarfOn)
-        scarf = try c.decode(UInt32.self, forKey: .scarf)
         hasTote = try c.decode(Bool.self, forKey: .hasTote)
-        outfitDetail = try c.decode(OutfitDetail.self, forKey: .outfitDetail)
         strollSpeed = try c.decode(CGFloat.self, forKey: .strollSpeed)
+
+        if let top = try c.decodeIfPresent(TopKind.self, forKey: .topKind) {
+            topKind = top
+        } else if let legacyDetail = try c.decodeIfPresent(String.self, forKey: .outfitDetail) {
+            topKind = legacyDetail == "pockets" ? .jacket : .cardigan
+        } else {
+            topKind = .cardigan
+        }
+
+        if let neck = try c.decodeIfPresent(NeckKind.self, forKey: .neckKind) {
+            neckKind = neck
+        } else if let scarfOn = try c.decodeIfPresent(Bool.self, forKey: .scarfOn) {
+            neckKind = scarfOn ? .scarf : .none
+        } else {
+            neckKind = .none
+        }
+        neckColor = try c.decodeIfPresent(UInt32.self, forKey: .neckColor)
+            ?? c.decodeIfPresent(UInt32.self, forKey: .scarf)
+            ?? 0xF2C14E
     }
 
     init(name: String, skin: UInt32, outfit: UInt32, pants: UInt32, shoes: UInt32,
          hatKind: HatKind, hat: UInt32, hairKind: HairKind, hair: UInt32,
-         bottomKind: BottomKind = .pants, glasses: Bool, scarfOn: Bool, scarf: UInt32,
-         hasTote: Bool, outfitDetail: OutfitDetail, strollSpeed: CGFloat) {
+         bottomKind: BottomKind = .pants, topKind: TopKind = .cardigan, glasses: Bool,
+         neckKind: NeckKind = .none, neckColor: UInt32 = 0xF2C14E,
+         hasTote: Bool, strollSpeed: CGFloat) {
         self.name = name
         self.skin = skin
         self.outfit = outfit
@@ -62,12 +90,34 @@ struct BuddyStyle: Codable {
         self.hairKind = hairKind
         self.hair = hair
         self.bottomKind = bottomKind
+        self.topKind = topKind
         self.glasses = glasses
-        self.scarfOn = scarfOn
-        self.scarf = scarf
+        self.neckKind = neckKind
+        self.neckColor = neckColor
         self.hasTote = hasTote
-        self.outfitDetail = outfitDetail
         self.strollSpeed = strollSpeed
+    }
+
+    // Encode only the current fields; the legacy CodingKeys cases above
+    // exist purely so init(from:) can migrate old saves.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(skin, forKey: .skin)
+        try c.encode(outfit, forKey: .outfit)
+        try c.encode(pants, forKey: .pants)
+        try c.encode(shoes, forKey: .shoes)
+        try c.encode(hatKind, forKey: .hatKind)
+        try c.encode(hat, forKey: .hat)
+        try c.encode(hairKind, forKey: .hairKind)
+        try c.encode(hair, forKey: .hair)
+        try c.encode(bottomKind, forKey: .bottomKind)
+        try c.encode(topKind, forKey: .topKind)
+        try c.encode(glasses, forKey: .glasses)
+        try c.encode(neckKind, forKey: .neckKind)
+        try c.encode(neckColor, forKey: .neckColor)
+        try c.encode(hasTote, forKey: .hasTote)
+        try c.encode(strollSpeed, forKey: .strollSpeed)
     }
 
     var skinColor: NSColor { NSColor(hex: skin) }
@@ -76,15 +126,14 @@ struct BuddyStyle: Codable {
     var shoesColor: NSColor { NSColor(hex: shoes) }
     var hatColor: NSColor { NSColor(hex: hat) }
     var hairColor: NSColor { NSColor(hex: hair) }
-    var scarfColor: NSColor { NSColor(hex: scarf) }
+    var neckColorValue: NSColor { NSColor(hex: neckColor) }
 
     static let juno = BuddyStyle(
         name: "Juno",
         skin: 0xF3C9A6, outfit: 0xFF6B2C, pants: 0x2E2A26, shoes: 0xF5F1E8,
         hatKind: .beanie, hat: 0x2E2A26,
         hairKind: .none, hair: 0x2E2A26,
-        glasses: true, scarfOn: false, scarf: 0xF2C14E, hasTote: false,
-        outfitDetail: .pockets, strollSpeed: 44
+        topKind: .jacket, glasses: true, neckKind: .none, hasTote: false, strollSpeed: 44
     )
 
     static let bo = BuddyStyle(
@@ -92,8 +141,8 @@ struct BuddyStyle: Codable {
         skin: 0xC98D5E, outfit: 0x9DBE8D, pants: 0xF5F1E8, shoes: 0x2E2A26,
         hatKind: .bucket, hat: 0xC9B8F0,
         hairKind: .none, hair: 0x2E2A26,
-        glasses: false, scarfOn: true, scarf: 0xF2C14E, hasTote: true,
-        outfitDetail: .buttons, strollSpeed: 36
+        topKind: .cardigan, glasses: false, neckKind: .scarf, neckColor: 0xF2C14E,
+        hasTote: true, strollSpeed: 36
     )
 
     static var defaults: [BuddyStyle] { [.juno, .bo] }
@@ -200,16 +249,34 @@ final class Buddy {
             figure.addSublayer(leg)
         }
 
-        // Arms (pivot at the shoulder), tucked behind the torso
+        // Arms (pivot at the shoulder), tucked behind the torso. Sleeve
+        // length depends on the top: sleeveless singlet, capped tee sleeve,
+        // or a full sleeve for a cardigan/jacket.
         let farOutfit = style.outfitColor.blended(withFraction: 0.14, of: .black) ?? style.outfitColor
-        armL = rounded(CGRect(x: 3, y: 36, width: 12, height: 30), 6, farOutfit)
-        armR = rounded(CGRect(x: 55, y: 36, width: 12, height: 30), 6, style.outfitColor)
-        for arm in [armL, armR] {
-            let hand = ellipse(CGRect(x: 1.5, y: -2, width: 9, height: 9), style.skinColor)
+        let farSkin = style.skinColor.blended(withFraction: 0.14, of: .black) ?? style.skinColor
+        let sleeveLength: CGFloat
+        switch style.topKind {
+        case .singlet: sleeveLength = 0
+        case .tshirt: sleeveLength = 12
+        case .cardigan, .jacket: sleeveLength = 30
+        }
+
+        func buildArm(x: CGFloat, sleeveColor: NSColor, skinTone: NSColor) -> CAShapeLayer {
+            let arm = rounded(CGRect(x: x, y: 36, width: 12, height: 30), 6, skinTone)
+            if sleeveLength > 0 {
+                arm.addSublayer(rounded(CGRect(x: 0, y: 30 - sleeveLength, width: 12, height: sleeveLength),
+                                        6, sleeveColor))
+            }
+            let hand = ellipse(CGRect(x: 1.5, y: -2, width: 9, height: 9), skinTone)
             arm.addSublayer(hand)
             setAnchor(arm, CGPoint(x: 0.5, y: 0.94))
-            figure.addSublayer(arm)
+            return arm
         }
+
+        armL = buildArm(x: 3, sleeveColor: farOutfit, skinTone: farSkin)
+        armR = buildArm(x: 55, sleeveColor: style.outfitColor, skinTone: style.skinColor)
+        figure.addSublayer(armL)
+        figure.addSublayer(armR)
 
         // A-line skirt over the legs, tucked under the torso
         if wearsSkirt {
@@ -232,23 +299,64 @@ final class Buddy {
         let torso = rounded(CGRect(x: 8, y: 26, width: 54, height: 50), 16, style.outfitColor)
         figure.addSublayer(torso)
 
-        // Outfit details
+        // Outfit details, distinct per top style
         let detailColor = style.outfitColor.blended(withFraction: 0.22, of: .black) ?? style.outfitColor
-        switch style.outfitDetail {
-        case .pockets:
+        switch style.topKind {
+        case .jacket:
+            torso.addSublayer(rounded(CGRect(x: 26, y: 4, width: 2, height: 42), 1, detailColor))
             torso.addSublayer(rounded(CGRect(x: 8, y: 10, width: 13, height: 4), 2, detailColor))
             torso.addSublayer(rounded(CGRect(x: 33, y: 10, width: 13, height: 4), 2, detailColor))
-        case .buttons:
+        case .cardigan:
+            torso.addSublayer(rounded(CGRect(x: 26, y: 4, width: 2, height: 42), 1, detailColor))
             for i in 0..<3 {
-                torso.addSublayer(ellipse(CGRect(x: 25.5, y: 12 + CGFloat(i) * 11, width: 3, height: 3),
+                torso.addSublayer(ellipse(CGRect(x: 22, y: 10 + CGFloat(i) * 11, width: 3, height: 3),
                                           Theme.ink.withAlphaComponent(0.3)))
             }
+        case .tshirt:
+            torso.addSublayer(rounded(CGRect(x: 19, y: 42, width: 16, height: 4), 2, detailColor))
+        case .singlet:
+            torso.addSublayer(rounded(CGRect(x: 15, y: 38, width: 6, height: 16), 3, style.outfitColor))
+            torso.addSublayer(rounded(CGRect(x: 33, y: 38, width: 6, height: 16), 3, style.outfitColor))
         }
 
-        // Scarf sits on the torso, behind the head
-        if style.scarfOn {
-            figure.addSublayer(rounded(CGRect(x: 18, y: 66, width: 34, height: 9), 4.5, style.scarfColor))
-            figure.addSublayer(rounded(CGRect(x: 38, y: 48, width: 11, height: 20), 5, style.scarfColor))
+        // Neck accessory sits on the torso, behind the head
+        switch style.neckKind {
+        case .none:
+            break
+        case .scarf:
+            figure.addSublayer(rounded(CGRect(x: 18, y: 66, width: 34, height: 9), 4.5, style.neckColorValue))
+            figure.addSublayer(rounded(CGRect(x: 38, y: 48, width: 11, height: 20), 5, style.neckColorValue))
+        case .tie:
+            figure.addSublayer(rounded(CGRect(x: 31, y: 62, width: 8, height: 8), 2, style.neckColorValue))
+            let knot = CAShapeLayer()
+            knot.frame = figure.bounds
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 31, y: 63))
+            path.addLine(to: CGPoint(x: 39, y: 63))
+            path.addLine(to: CGPoint(x: 37, y: 36))
+            path.addLine(to: CGPoint(x: 35, y: 31))
+            path.addLine(to: CGPoint(x: 33, y: 36))
+            path.closeSubpath()
+            knot.path = path
+            knot.fillColor = style.neckColorValue.cgColor
+            figure.addSublayer(knot)
+        case .bow:
+            let bowColor = style.neckColorValue
+            func wing(flip: CGFloat) -> CAShapeLayer {
+                let wing = CAShapeLayer()
+                wing.frame = figure.bounds
+                let path = CGMutablePath()
+                path.move(to: CGPoint(x: 35, y: 65))
+                path.addLine(to: CGPoint(x: 35 + 11 * flip, y: 70))
+                path.addLine(to: CGPoint(x: 35 + 11 * flip, y: 59))
+                path.closeSubpath()
+                wing.path = path
+                wing.fillColor = bowColor.cgColor
+                return wing
+            }
+            figure.addSublayer(wing(flip: -1))
+            figure.addSublayer(wing(flip: 1))
+            figure.addSublayer(ellipse(CGRect(x: 32, y: 62, width: 6, height: 6), bowColor))
         }
 
         // Head group (tilts while thinking)
@@ -282,6 +390,35 @@ final class Buddy {
         case .bun:
             headGroup.addSublayer(rounded(CGRect(x: 6, y: 26, width: 34, height: 13), 9, style.hairColor))
             headGroup.addSublayer(ellipse(CGRect(x: 16, y: 37, width: 14, height: 11), style.hairColor))
+        case .ponytail:
+            // A high pony: hair gathered in a poof at the crown, with a
+            // single tapering tail sweeping off to one side. Reads as
+            // "gathered at the top" from either walking direction, rather
+            // than a strand dangling loose by the cheek.
+            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+            let gather = rounded(CGRect(x: 23, y: 30, width: 15, height: 15), 7, style.hairColor)
+            headGroup.insertSublayer(gather, below: head)
+            let tail = rounded(CGRect(x: 29, y: -18, width: 11, height: 40), 5, style.hairColor)
+            headGroup.insertSublayer(tail, below: head)
+            // Drawn on top (not tucked below head) since the crown piece
+            // above would otherwise fully cover a tie this close to center.
+            headGroup.addSublayer(rounded(CGRect(x: 24, y: 30, width: 13, height: 5), 2, Theme.accent))
+        case .pigtails:
+            // Crown, plus two tails sticking out clearly past both sides of
+            // the head, each gathered with a bright hair tie and a couple of
+            // darker wrap bands for a braided-rope texture.
+            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+            let wrap = style.hairColor.blended(withFraction: 0.28, of: .black) ?? style.hairColor
+            for side: CGFloat in [-4, 39] {
+                let tail = rounded(CGRect(x: side, y: -10, width: 10, height: 32), 5, style.hairColor)
+                headGroup.insertSublayer(tail, below: head)
+                headGroup.insertSublayer(rounded(CGRect(x: side, y: 4, width: 10, height: 3), 1.5, wrap),
+                                         below: head)
+                headGroup.insertSublayer(rounded(CGRect(x: side, y: -4, width: 10, height: 3), 1.5, wrap),
+                                         below: head)
+                let tie = rounded(CGRect(x: side - 1, y: 16, width: 12, height: 5), 2, Theme.accent)
+                headGroup.insertSublayer(tie, below: head)
+            }
         }
 
         // Face (drawn facing right; the whole root flips for direction)

@@ -61,9 +61,12 @@ delete this project folder later.
   strikes a picked-up pose while held and resumes strolling after you drop it.
   A plain click (no drag) still opens the ask box.
 - **Right-click a buddy** (or menu bar → Dressing room) → live character
-  editor: skin tone, hair (crop / bob / long / bun) + color, hat (beanie /
-  bucket / none) + color, top, bottom (pants or skirt) + color, shoes, plus
-  glasses / scarf / tote toggles.
+  editor: skin tone; hair (crop / bob / long / ponytail / pigtails / bun) +
+  color; hat (beanie / bucket / none) + color; top style (singlet / t-shirt /
+  cardigan / jacket) + color, each with a genuinely different silhouette
+  (bare arms, capped sleeves, or full sleeves, plus buttons/pockets/seam
+  details to match); bottom (pants or skirt) + color; shoes; neck accessory
+  (none / scarf / tie / bow) + color; and glasses / tote toggles.
   Changes apply instantly on the dock and persist across restarts
   (`UserDefaults`); Reset restores the original look.
 - **Claude Code watch:** the buddies nudge you when a Claude Code session
@@ -109,7 +112,13 @@ on the art:
 
 ```bash
 build/Dockmates.app/Contents/MacOS/Dockmates --snapshot /tmp/buddies.png
+build/Dockmates.app/Contents/MacOS/Dockmates --snapshot-closeup /tmp/closeup.png
 ```
+
+`--snapshot` renders a wardrobe mosaic of several outfits; `--snapshot-closeup`
+renders two characters at 2.6x geometric size (the `scale:` parameter on
+`Buddy.init` is contentsScale for sharpness only, not physical size, so a
+real closeup needs an explicit `CATransform3DMakeScale` on `buddy.root`).
 
 ## Architecture
 

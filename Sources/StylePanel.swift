@@ -28,7 +28,7 @@ final class StylePanel: KeyPanel {
     private var controls: [NSView] = []
     private var nextY: CGFloat = 0
 
-    private static let panelSize = NSSize(width: 430, height: 660)
+    private static let panelSize = NSSize(width: 430, height: 728)
     private let content = NSView(frame: NSRect(origin: .zero, size: panelSize))
 
     init() {
@@ -187,7 +187,13 @@ final class StylePanel: KeyPanel {
             }
         })
 
-        addRow("Top", Theme.clothing.map { hex in
+        addRow("Top", TopKind.allCases.map { kind in
+            chip(kind.rawValue, selected: s.topKind == kind) { [weak self] in
+                self?.apply { $0.topKind = kind }
+            }
+        })
+
+        addRow("Top color", Theme.clothing.map { hex in
             swatch(hex, selected: s.outfit == hex) { [weak self] in
                 self?.apply { $0.outfit = hex }
             }
@@ -211,25 +217,28 @@ final class StylePanel: KeyPanel {
             }
         })
 
+        addRow("Neck", NeckKind.allCases.map { kind in
+            chip(kind.rawValue, selected: s.neckKind == kind) { [weak self] in
+                self?.apply { $0.neckKind = kind }
+            }
+        })
+
+        if s.neckKind != .none {
+            addRow("Neck color", Theme.clothing.map { hex in
+                swatch(hex, selected: s.neckColor == hex) { [weak self] in
+                    self?.apply { $0.neckColor = hex }
+                }
+            })
+        }
+
         addRow("Extras", [
             chip("glasses", selected: s.glasses) { [weak self] in
                 self?.apply { $0.glasses.toggle() }
-            },
-            chip("scarf", selected: s.scarfOn) { [weak self] in
-                self?.apply { $0.scarfOn.toggle() }
             },
             chip("tote", selected: s.hasTote) { [weak self] in
                 self?.apply { $0.hasTote.toggle() }
             },
         ])
-
-        if s.scarfOn {
-            addRow("Scarf color", Theme.clothing.map { hex in
-                swatch(hex, selected: s.scarf == hex) { [weak self] in
-                    self?.apply { $0.scarf = hex }
-                }
-            })
-        }
     }
 
     private func addRow(_ label: String, _ items: [NSView]) {
