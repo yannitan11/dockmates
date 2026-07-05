@@ -189,6 +189,13 @@ final class Buddy {
     private var nextBlinkAt: TimeInterval = 0
     private var blinkUntil: TimeInterval = 0
     private var lastNow: TimeInterval = 0
+    private var waveStart: TimeInterval?
+    private let waveDuration: TimeInterval = 0.9
+
+    /// Cooldown bookkeeping for ambient cute moments (hover waves, buddy
+    /// greetings), owned and read by OverlayController.
+    var lastWaveAt: TimeInterval = 0
+    var lastGreetAt: TimeInterval = 0
 
     var thinkElapsed: TimeInterval { lastNow - thinkStart }
 
@@ -240,9 +247,11 @@ final class Buddy {
         let legWidth: CGFloat = wearsSkirt ? 10 : 13
         let farLeg = legColor.blended(withFraction: 0.16, of: .black) ?? legColor
         let farShoes = style.shoesColor.blended(withFraction: 0.16, of: .black) ?? style.shoesColor
-        legL = rounded(CGRect(x: wearsSkirt ? 22 : 20, y: 0, width: legWidth, height: 32), 6, farLeg)
-        legR = rounded(CGRect(x: wearsSkirt ? 38 : 37, y: 0, width: legWidth, height: 32), 6, legColor)
-        for (leg, shoeColor) in [(legL, farShoes), (legR, style.shoesColor)] {
+        // Left = near side (full color), right = far side (shaded), so the
+        // whole left side reads as nearer to match the in-front left arm.
+        legL = rounded(CGRect(x: wearsSkirt ? 22 : 20, y: 0, width: legWidth, height: 32), 6, legColor)
+        legR = rounded(CGRect(x: wearsSkirt ? 38 : 37, y: 0, width: legWidth, height: 32), 6, farLeg)
+        for (leg, shoeColor) in [(legL, style.shoesColor), (legR, farShoes)] {
             let shoe = rounded(CGRect(x: -2, y: -2, width: 19, height: 9), 4.5, shoeColor)
             leg.addSublayer(shoe)
             setAnchor(leg, CGPoint(x: 0.5, y: 0.95))
@@ -273,10 +282,16 @@ final class Buddy {
             return arm
         }
 
-        armL = buildArm(x: 3, sleeveColor: farOutfit, skinTone: farSkin)
-        armR = buildArm(x: 55, sleeveColor: style.outfitColor, skinTone: style.skinColor)
-        figure.addSublayer(armL)
-        figure.addSublayer(armR)
+        // The left arm is the NEAR arm: full-strength color, and it's added
+        // to the figure later (after the torso) so it renders in FRONT of the
+        // body and visibly swings across it for depth. The right arm is the
+        // FAR arm: shaded and tucked behind the torso. When the character
+        // flips to walk the other way, the whole figure mirrors but layer
+        // z-order doesn't, so the in-front arm correctly appears on the other
+        // side (e.g. right hand in front when walking left).
+        armL = buildArm(x: 6, sleeveColor: style.outfitColor, skinTone: style.skinColor)
+        armR = buildArm(x: 52, sleeveColor: farOutfit, skinTone: farSkin)
+        figure.addSublayer(armR)  // far arm, behind the torso
 
         // A-line skirt over the legs, tucked under the torso
         if wearsSkirt {
@@ -295,8 +310,10 @@ final class Buddy {
             figure.addSublayer(skirt)
         }
 
-        // Torso
-        let torso = rounded(CGRect(x: 8, y: 26, width: 54, height: 50), 16, style.outfitColor)
+        // Torso: slimmer than before (was 54/70 = 77% of the character's
+        // width, reading as an overinflated blob) and a touch shorter so
+        // the head sits into it rather than floating disconnected above.
+        let torso = rounded(CGRect(x: 11, y: 26, width: 48, height: 48), 15, style.outfitColor)
         figure.addSublayer(torso)
 
         // Outfit details, distinct per top style
@@ -318,6 +335,10 @@ final class Buddy {
             torso.addSublayer(rounded(CGRect(x: 15, y: 38, width: 6, height: 16), 3, style.outfitColor))
             torso.addSublayer(rounded(CGRect(x: 33, y: 38, width: 6, height: 16), 3, style.outfitColor))
         }
+
+        // Near (left) arm renders in front of the torso, so its forward swing
+        // crosses the body instead of hiding behind it.
+        figure.addSublayer(armL)
 
         // Neck accessory sits on the torso, behind the head
         switch style.neckKind {
@@ -372,11 +393,11 @@ final class Buddy {
         case .none:
             break
         case .crop:
-            headGroup.addSublayer(rounded(CGRect(x: 6, y: 26, width: 34, height: 13), 9, style.hairColor))
+            headGroup.addSublayer(bangs(CGRect(x: 4, y: 25, width: 38, height: 15), style.hairColor))
         case .bob:
             let back = rounded(CGRect(x: 1, y: 4, width: 44, height: 36), 15, style.hairColor)
             headGroup.insertSublayer(back, below: head)
-            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+            headGroup.addSublayer(bangs(CGRect(x: 4, y: 25, width: 38, height: 15), style.hairColor))
         case .long:
             // Bob-style back plus two strands falling over the shoulders,
             // keeping the chin area clear so it doesn't read as a beard
@@ -386,16 +407,16 @@ final class Buddy {
             let strandR = rounded(CGRect(x: 34, y: -14, width: 12, height: 36), 6, style.hairColor)
             headGroup.insertSublayer(strandL, below: head)
             headGroup.insertSublayer(strandR, below: head)
-            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+            headGroup.addSublayer(bangs(CGRect(x: 4, y: 25, width: 38, height: 15), style.hairColor))
         case .bun:
-            headGroup.addSublayer(rounded(CGRect(x: 6, y: 26, width: 34, height: 13), 9, style.hairColor))
+            headGroup.addSublayer(bangs(CGRect(x: 4, y: 25, width: 38, height: 15), style.hairColor))
             headGroup.addSublayer(ellipse(CGRect(x: 16, y: 37, width: 14, height: 11), style.hairColor))
         case .ponytail:
             // A high pony: hair gathered in a poof at the crown, with a
             // single tapering tail sweeping off to one side. Reads as
             // "gathered at the top" from either walking direction, rather
             // than a strand dangling loose by the cheek.
-            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+            headGroup.addSublayer(bangs(CGRect(x: 4, y: 25, width: 38, height: 15), style.hairColor))
             let gather = rounded(CGRect(x: 23, y: 30, width: 15, height: 15), 7, style.hairColor)
             headGroup.insertSublayer(gather, below: head)
             let tail = rounded(CGRect(x: 29, y: -18, width: 11, height: 40), 5, style.hairColor)
@@ -407,7 +428,7 @@ final class Buddy {
             // Crown, plus two tails sticking out clearly past both sides of
             // the head, each gathered with a bright hair tie and a couple of
             // darker wrap bands for a braided-rope texture.
-            headGroup.addSublayer(rounded(CGRect(x: 6, y: 27, width: 34, height: 11), 7, style.hairColor))
+            headGroup.addSublayer(bangs(CGRect(x: 4, y: 25, width: 38, height: 15), style.hairColor))
             let wrap = style.hairColor.blended(withFraction: 0.28, of: .black) ?? style.hairColor
             for side: CGFloat in [-4, 39] {
                 let tail = rounded(CGRect(x: side, y: -10, width: 10, height: 32), 5, style.hairColor)
@@ -473,8 +494,11 @@ final class Buddy {
         case .none:
             break
         case .beanie:
+            // An ellipse (not a rect) for the dome, so its curve actually
+            // matches the head's curve instead of leaving a straight-edged
+            // seam at the temples; the folded brim strip stays a flat rect.
             let band = style.hatColor.blended(withFraction: 0.18, of: .white) ?? style.hatColor
-            headGroup.addSublayer(rounded(CGRect(x: 3, y: 27, width: 40, height: 15), 10, style.hatColor))
+            headGroup.addSublayer(ellipse(CGRect(x: 1, y: 21, width: 44, height: 26), style.hatColor))
             headGroup.addSublayer(rounded(CGRect(x: 3, y: 25, width: 40, height: 6), 3, band))
         case .bucket:
             headGroup.addSublayer(rounded(CGRect(x: 7, y: 29, width: 32, height: 13), 8, style.hatColor))
@@ -553,6 +577,27 @@ final class Buddy {
         return layer
     }
 
+    /// A dome shape for a hair fringe: curved on top to hug the head's
+    /// curvature (like the ellipse it replaces), but with a flat-ish bottom
+    /// edge instead of curving back up at the sides, so it reads as bangs
+    /// cut across the forehead rather than a helmet dome.
+    private func bangs(_ frame: CGRect, _ color: NSColor) -> CAShapeLayer {
+        let layer = CAShapeLayer()
+        layer.frame = frame
+        let w = frame.width
+        let h = frame.height
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 0))
+        path.addCurve(to: CGPoint(x: w, y: 0),
+                     control1: CGPoint(x: 0, y: h * 1.34),
+                     control2: CGPoint(x: w, y: h * 1.34))
+        path.addQuadCurve(to: CGPoint(x: 0, y: 0), control: CGPoint(x: w / 2, y: -h * 0.1))
+        path.closeSubpath()
+        layer.path = path
+        layer.fillColor = color.cgColor
+        return layer
+    }
+
     private func setAnchor(_ layer: CALayer, _ anchor: CGPoint) {
         let f = layer.frame
         layer.anchorPoint = anchor
@@ -580,6 +625,7 @@ final class Buddy {
         mode = .celebrate
         celebrateUntil = lastNow + 1.8
         hopStart = nil
+        targetX = nil  // stop mid-stride rather than drifting while hopping
     }
 
     func stopBusy() {
@@ -591,6 +637,13 @@ final class Buddy {
 
     func hop() {
         hopStart = lastNow
+    }
+
+    /// A little hello wave, triggered when the cursor first lands on the
+    /// buddy without clicking. Purely cosmetic; safe to call any time the
+    /// buddy isn't busy or being dragged.
+    func wave() {
+        waveStart = lastNow
     }
 
     func beginDrag() {
@@ -681,14 +734,37 @@ final class Buddy {
         legL.transform = CATransform3DMakeRotation(swing * 0.38, 0, 0, 1)
         legR.transform = CATransform3DMakeRotation(-swing * 0.38, 0, 0, 1)
         if beingDragged {
-            // Arms up, legs dangling straight, like being picked up
-            armL.transform = CATransform3DMakeRotation(0.65, 0, 0, 1)
-            armR.transform = CATransform3DMakeRotation(-0.65, 0, 0, 1)
+            // Arms up and outward, legs dangling straight, like being picked up.
+            // Each arm's rest pose hangs straight down from a shoulder-top pivot,
+            // so a positive rotation swings the right arm outward (+x) and a
+            // negative rotation swings the left arm outward (-x); matching signs
+            // on both arms would instead cross them in toward the chest.
+            armL.transform = CATransform3DMakeRotation(-0.65, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(0.65, 0, 0, 1)
             legL.transform = CATransform3DMakeRotation(0.12, 0, 0, 1)
             legR.transform = CATransform3DMakeRotation(-0.12, 0, 0, 1)
+        } else if let ws = waveStart, now - ws < waveDuration {
+            // Right arm raises outward and up beside the head (not across the
+            // face) and wiggles, like a little hello wave. See the sign note
+            // above: positive rotation is what swings this arm outward.
+            let t = now - ws
+            let raise = min(1, t / 0.18)
+            let wiggle = sin(t * 16) * 0.22 * CGFloat(min(1, (waveDuration - t) / 0.2 + 0.3))
+            armR.transform = CATransform3DMakeRotation(2.5 * CGFloat(raise) + wiggle, 0, 0, 1)
+            armL.transform = CATransform3DMakeRotation(swing * 0.3, 0, 0, 1)
         } else {
-            armL.transform = CATransform3DMakeRotation(-swing * 0.3, 0, 0, 1)
-            armR.transform = CATransform3DMakeRotation(swing * 0.3, 0, 0, 1)
+            if waveStart != nil { waveStart = nil }
+            // The two arms swing out one after another, not in lockstep: the
+            // far (right) arm's swing trails the near (left) arm's by a large
+            // armLag (roughly a half-cycle), so when the near arm is fully
+            // forward the far arm is only starting out, giving a clear
+            // cascading "1... 2..." rhythm. The bigger swing amplitude makes
+            // that offset legible at dock size.
+            let armLag = 1.7
+            let nearSwing = CGFloat(sin(walkPhase)) * CGFloat(walkAmount)
+            let farSwing = CGFloat(sin(walkPhase - armLag)) * CGFloat(walkAmount)
+            armL.transform = CATransform3DMakeRotation(nearSwing * 0.42, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(farSwing * 0.42, 0, 0, 1)
         }
 
         var lift = abs(CGFloat(sin(walkPhase))) * 2.4 * CGFloat(walkAmount)

@@ -62,6 +62,28 @@ final class OverlayController {
         "beep boop",
     ]
 
+    private let greetings = ["hey!", "oh hi!", "fancy seeing you here", "hiya"]
+    private let hoverGreetings = ["hi!", "hello!", "hey there"]
+
+    // A minority of greetings turn into a little back-and-forth instead of a
+    // single word. One buddy asks, the other answers after a beat.
+    private let conversations: [(String, String)] = [
+        ("how's the weather up there?", "sunny, not a cloud in sight"),
+        ("busy day?", "just the usual strolling"),
+        ("seen any good downloads lately?", "nothing exciting, sadly"),
+        ("you doing okay?", "yep, all good here"),
+        ("what time is it anyway?", "no idea, lost track ages ago"),
+        ("how's the wifi treating you?", "surprisingly solid today"),
+        ("any plans for later?", "just gonna keep pacing around"),
+        ("dock's looking calm today", "yeah, nice and quiet"),
+    ]
+
+    /// Fires every animation tick (about 30fps), after buddies and bubbles
+    /// update. Lets AppController keep buddy-anchored panels glued in place.
+    var onTick: (() -> Void)?
+
+    private var hoveredBuddy: Buddy?
+
     init() {
         window = OverlayWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: stageHeight),
@@ -207,13 +229,70 @@ final class OverlayController {
             }
         }
 
+        // Buddies say hi when they wander close to each other
+        if buddies.count >= 2 {
+            for i in 0..<buddies.count {
+                for j in (i + 1)..<buddies.count {
+                    let a = buddies[i]
+                    let b = buddies[j]
+                    guard !a.busy, !b.busy, !a.beingDragged, !b.beingDragged else { continue }
+                    // Long cooldown: two buddies sharing a dock cross paths
+                    // often, and this should read as an occasional charming
+                    // moment, not a running conversation every time they meet.
+                    guard now - a.lastGreetAt > 90, now - b.lastGreetAt > 90 else { continue }
+                    guard abs(a.x - b.x) < 48 else { continue }
+                    a.lastGreetAt = now
+                    b.lastGreetAt = now
+                    a.facing = b.x >= a.x ? 1 : -1
+                    b.facing = a.x >= b.x ? 1 : -1
+                    a.celebrate()
+                    b.celebrate()
+
+                    // A minority of the time, upgrade the plain "hey!" into
+                    // a little question-and-answer exchange instead. The
+                    // 90s cooldown above already keeps greetings rare; this
+                    // only changes what a greeting looks like, not how
+                    // often one happens.
+                    if Double.random(in: 0...1) < 0.35, let pair = conversations.randomElement() {
+                        let asker = Bool.random() ? a : b
+                        let answerer = asker === a ? b : a
+                        asker.bubble.show(pair.0, for: 2.6)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak answerer] in
+                            // Skip the answer if they've since been picked up
+                            // or given something else to do mid-exchange.
+                            guard let answerer, !answerer.busy, !answerer.beingDragged else { return }
+                            answerer.hop()
+                            answerer.bubble.show(pair.1, for: 2.4)
+                        }
+                    } else {
+                        (Bool.random() ? a : b).bubble.show(greetings.randomElement()!, for: 2.2)
+                    }
+                }
+            }
+        }
+
         // Intercept the mouse while it hovers a buddy, or throughout a drag
         let mouse = NSEvent.mouseLocation
         let local = NSPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY)
-        let over = interacting || buddyAt(local) != nil
+        let hovered = buddyAt(local)
+        let over = interacting || hovered != nil
         if window.ignoresMouseEvents == over {
             window.ignoresMouseEvents = !over
         }
+
+        // A little hello wave the first moment the cursor lands on a buddy
+        if hovered !== hoveredBuddy {
+            hoveredBuddy = hovered
+            if let hovered, !hovered.busy, !hovered.beingDragged, now - hovered.lastWaveAt > 5 {
+                hovered.lastWaveAt = now
+                hovered.wave()
+                if Bool.random(), !hovered.bubble.visible {
+                    hovered.bubble.show(hoverGreetings.randomElement()!, for: 1.6)
+                }
+            }
+        }
+
+        onTick?()
     }
 
     private func buddyAt(_ point: NSPoint) -> Buddy? {
@@ -300,6 +379,48 @@ enum SnapshotRenderer {
         }
     }
 
+    /// Renders one buddy across a full walk cycle (several swing phases) so
+    /// the arm/leg motion can be reviewed as a filmstrip, not a single frame.
+    static func writeWalk(to path: String) {
+        let width = 1320
+        let height = 300
+        let zoom: CGFloat = 2.2
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        // Six evenly-spaced steps across one full cycle, so a staggered
+        // (one-after-another) arm swing is visible as a cascade.
+        let phases: [Double] = (0..<6).map { Double($0) * (2 * .pi / 6) }
+        var x: CGFloat = 120
+        for phase in phases {
+            var s = BuddyStyle.juno
+            s.glasses = false
+            let buddy = Buddy(style: s, scale: 3, feetY: 20)
+            buddy.x = x
+            stage.addSublayer(buddy.root)
+            buddy.forcePose(phase: phase, walk: 1)
+            buddy.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+            x += 220
+        }
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("walk cycle written to \(path)")
+    }
+
     static func writeCloseup(to path: String) {
         let width = 700
         let height = 420
@@ -356,6 +477,78 @@ enum SnapshotRenderer {
         guard let png = rep.representation(using: .png, properties: [:]) else { return }
         try? png.write(to: URL(fileURLWithPath: path))
         print("closeup written to \(path)")
+    }
+
+    static func writeShoulderZoom(to path: String) {
+        let width = 500
+        let height = 500
+        let zoom: CGFloat = 5.5
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        let buddy = Buddy(style: .bo, scale: 3, feetY: -60)
+        buddy.x = CGFloat(width) / 2
+        stage.addSublayer(buddy.root)
+        buddy.forcePose(phase: 0, walk: 0)
+        buddy.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("shoulder zoom written to \(path)")
+    }
+
+    static func writeWave(to path: String) {
+        let width = 300
+        let height = 320
+        let zoom: CGFloat = 3
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        let buddy = Buddy(style: .juno, scale: 3, feetY: 10)
+        buddy.x = CGFloat(width) / 2
+        stage.addSublayer(buddy.root)
+        if CommandLine.arguments.contains("--held") {
+            buddy.beginDrag()
+            buddy.forcePose(phase: 0, walk: 0)
+        } else {
+            buddy.forcePose(phase: 0, walk: 0)
+            buddy.wave()
+            // wave() timestamps against lastNow (still 0, since forcePose only
+            // feeds a local "now" into applyPose and never touches lastNow),
+            // so a small explicit elapsed time here lands mid-wave.
+            buddy.applyPose(now: 0.35)
+        }
+        buddy.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("wave pose written to \(path)")
     }
 
     static func writeHats(to path: String) {

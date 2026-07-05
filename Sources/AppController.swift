@@ -7,6 +7,12 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var answerPanel: AnswerPanel?
     private var stylePanel: StylePanel?
     private var routinePanel: RoutinePanel?
+
+    // Which buddy each open panel is anchored to, so it can be repositioned
+    // as that buddy wanders or gets dragged instead of being left behind.
+    private var askBuddy: Buddy?
+    private var answerBuddy: Buddy?
+    private var styleBuddy: Buddy?
     private let scheduler = ReminderScheduler()
 
     private let watcher = ClaudeWatcher()
@@ -30,6 +36,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         overlay.onBuddyRightClicked = { [weak self] buddy in
             self?.openDressingRoom(for: buddy)
+        }
+        overlay.onTick = { [weak self] in
+            self?.trackPanels()
         }
         overlay.start()
         setupStatusItem()
@@ -150,6 +159,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func openDressingRoom(for buddy: Buddy) {
+        styleBuddy = buddy
         let panel = stylePanel ?? StylePanel()
         stylePanel = panel
         panel.onStyleChanged = { [weak self] in
@@ -158,6 +168,33 @@ final class AppController: NSObject, NSApplicationDelegate {
         let index = overlay.buddies.firstIndex { $0 === buddy } ?? 0
         panel.present(buddies: overlay.buddies, selected: index,
                       near: overlay.screenPoint(above: buddy))
+    }
+
+    /// Keeps any open, buddy-anchored panel glued above its buddy as that
+    /// buddy wanders, gets dragged, or paces while thinking, instead of
+    /// leaving the panel stranded at wherever it was first opened.
+    private func trackPanels() {
+        if let panel = askPanel, panel.isVisible, let buddy = askBuddy {
+            reposition(panel, near: buddy)
+        }
+        if let panel = answerPanel, panel.isVisible, let buddy = answerBuddy {
+            reposition(panel, near: buddy)
+        }
+        if let panel = stylePanel, panel.isVisible, let buddy = styleBuddy {
+            reposition(panel, near: buddy)
+        }
+    }
+
+    private func reposition(_ panel: NSPanel, near buddy: Buddy) {
+        let point = overlay.screenPoint(above: buddy)
+        var origin = NSPoint(x: point.x - panel.frame.width / 2, y: point.y + 10)
+        if let screen = NSScreen.screens.first {
+            let vf = screen.visibleFrame
+            origin.x = max(vf.minX + 12, min(origin.x, vf.maxX - panel.frame.width - 12))
+            origin.y = min(origin.y, vf.maxY - panel.frame.height - 12)
+            origin.y = max(origin.y, vf.minY + 12)
+        }
+        panel.setFrameOrigin(origin)
     }
 
     private func saveStyles() {
@@ -190,6 +227,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func openAsk(for buddy: Buddy) {
+        askBuddy = buddy
         let panel = askPanel ?? AskPanel()
         askPanel = panel
         panel.onSubmit = { [weak self] prompt in
@@ -220,6 +258,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 let panel = AnswerPanel(buddyName: buddy.style.name, body: text)
                 panel.present(above: self.overlay.screenPoint(above: buddy))
                 self.answerPanel = panel
+                self.answerBuddy = buddy
             case .failure(let error):
                 buddy.stopBusy()
                 buddy.bubble.show("hmm, that didn't work", for: 3)
@@ -229,6 +268,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 )
                 panel.present(above: self.overlay.screenPoint(above: buddy))
                 self.answerPanel = panel
+                self.answerBuddy = buddy
             }
         }
     }
