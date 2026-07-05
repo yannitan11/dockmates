@@ -23,18 +23,28 @@ Inspired by the "tiny AI agents on your dock" trend, with original characters:
 
 ## Build & run
 
+For quick dev iteration (compiles into `build/Dockmates.app`, doesn't touch
+your installed copy or its login item):
+
 ```bash
 ./build.sh
 open build/Dockmates.app
 ```
 
+For a stable, permanent install (builds, then copies to `/Applications` and
+relaunches from there):
+
+```bash
+./install.sh
+```
+
 Dockmates runs as a menu-bar app (sparkles icon) with no dock icon of its own.
 It launches itself automatically at login by default (toggle it from the menu
-under "Start at Login"), and you can quit it anytime from the same menu.
-Note the login item points at wherever `build/Dockmates.app` currently is; if
-you move or delete that folder, re-run `./build.sh` and reopen the app once to
-re-register it. For a permanent install, copy `build/Dockmates.app` to
-`/Applications` and open it from there instead.
+under "Start at Login"), and you can quit it anytime from the same menu. The
+login item points at wherever the app was last launched from, so use
+`./install.sh` (not `./build.sh` + `open build/Dockmates.app`) whenever you
+want the auto-launch to keep working reliably, especially if you might move or
+delete this project folder later.
 
 ## Using it
 
