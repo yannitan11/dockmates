@@ -70,7 +70,6 @@ final class OverlayController {
         "nice dock you got",
         "coffee break?",
         "just strolling",
-        "click me if you need me",
         "beep boop",
     ]
 

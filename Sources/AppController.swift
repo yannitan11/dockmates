@@ -15,6 +15,10 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var styleBuddy: Buddy?
     private let scheduler = ReminderScheduler()
 
+    // The `claude` CLI session backing the current answer panel's
+    // conversation, so follow-up replies continue it via `--resume`.
+    private var answerSessionId: String?
+
     private let watcher = ClaudeWatcher()
     private let notifier = Notifier()
     private let claudeBundleID = "com.anthropic.claudefordesktop"
@@ -268,12 +272,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         let panel = askPanel ?? AskPanel()
         askPanel = panel
         panel.onSubmit = { [weak self] prompt in
-            self?.startTask(prompt, buddy: buddy)
+            self?.answerSessionId = nil
+            self?.startTask(prompt, buddy: buddy, isFollowUp: false)
         }
         panel.present(above: overlay.screenPoint(above: buddy), listener: buddy.style.name)
     }
 
-    private func startTask(_ prompt: String, buddy: Buddy) {
+    private func startTask(_ prompt: String, buddy: Buddy, isFollowUp: Bool) {
         // A reminder request is handled locally, no Claude CLI needed.
         if let reminder = ReminderParser.parse(prompt) {
             scheduler.add(reminder)
@@ -283,30 +288,48 @@ final class AppController: NSObject, NSApplicationDelegate {
             return
         }
 
-        answerPanel?.orderOut(nil)
         buddy.beginThinking()
+        if isFollowUp {
+            answerPanel?.appendUserMessage(prompt)
+            answerPanel?.setBusy(true)
+        } else {
+            answerPanel?.orderOut(nil)
+        }
 
-        ClaudeRunner.run(prompt: prompt) { [weak self] result in
+        ClaudeRunner.run(prompt: prompt, resuming: answerSessionId) { [weak self] result in
             guard let self else { return }
             switch result {
-            case .success(let text):
+            case .success(let reply):
+                self.answerSessionId = reply.sessionId
                 buddy.celebrate()
                 buddy.bubble.show("ta-da!", for: 2.5)
-                let panel = AnswerPanel(buddyName: buddy.style.name, body: text)
-                panel.present(above: self.overlay.screenPoint(above: buddy))
-                self.answerPanel = panel
-                self.answerBuddy = buddy
+                if isFollowUp, let panel = self.answerPanel {
+                    panel.setBusy(false)
+                    panel.appendAssistantMessage(reply.text)
+                } else {
+                    self.presentAnswer(reply.text, buddy: buddy)
+                }
             case .failure(let error):
                 buddy.stopBusy()
                 buddy.bubble.show("hmm, that didn't work", for: 3)
-                let panel = AnswerPanel(
-                    buddyName: buddy.style.name,
-                    body: "Something went wrong:\n\n" + error.localizedDescription
-                )
-                panel.present(above: self.overlay.screenPoint(above: buddy))
-                self.answerPanel = panel
-                self.answerBuddy = buddy
+                let message = "Something went wrong:\n\n" + error.localizedDescription
+                if isFollowUp, let panel = self.answerPanel {
+                    panel.setBusy(false)
+                    panel.appendAssistantMessage(message)
+                } else {
+                    self.presentAnswer(message, buddy: buddy)
+                }
             }
         }
+    }
+
+    private func presentAnswer(_ text: String, buddy: Buddy) {
+        let panel = AnswerPanel(buddyName: buddy.style.name, body: text)
+        panel.onReply = { [weak self] reply in
+            self?.startTask(reply, buddy: buddy, isFollowUp: true)
+        }
+        panel.present(above: overlay.screenPoint(above: buddy))
+        answerPanel = panel
+        answerBuddy = buddy
     }
 }

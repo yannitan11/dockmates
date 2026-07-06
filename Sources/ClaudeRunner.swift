@@ -9,6 +9,13 @@ enum ClaudeError: LocalizedError {
     }
 }
 
+/// A single reply from the `claude` CLI, plus the session id needed to
+/// continue the same conversation on a follow-up call via `--resume`.
+struct ClaudeReply {
+    let text: String
+    let sessionId: String
+}
+
 /// Runs a prompt through a `claude` CLI off the main thread.
 ///
 /// On Macs where Claude is used only through the desktop app there is no
@@ -31,73 +38,114 @@ enum ClaudeRunner {
     `claude` once to log in, then reopen Dockmates.
     """
 
-    static func run(prompt: String, completion: @escaping (Result<String, Error>) -> Void) {
+    /// Runs `prompt`, optionally continuing a prior conversation via
+    /// `--resume`. If a `sessionId` is given but the CLI reports it can't
+    /// find that session (e.g. it expired), retries once as a fresh
+    /// conversation instead of surfacing that as an error.
+    static func run(prompt: String, resuming sessionId: String? = nil,
+                     completion: @escaping (Result<ClaudeReply, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             guard let binary = locateBinary() else {
                 DispatchQueue.main.async { completion(.failure(ClaudeError.failed(notAvailableMessage))) }
                 return
             }
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: binary)
-            process.arguments = ["-p", prompt]
-            process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+            let (stdout, stderr, status) = invoke(binary: binary, prompt: prompt, resuming: sessionId)
+            let combined = (stdout + " " + stderr).lowercased()
 
-            var env = ProcessInfo.processInfo.environment
-            env["PATH"] = (env["PATH"] ?? "") +
-                ":/opt/homebrew/bin:/usr/local/bin:\(NSHomeDirectory())/.local/bin"
-            process.environment = env
-
-            let out = Pipe()
-            let err = Pipe()
-            process.standardOutput = out
-            process.standardError = err
-
-            do {
-                try process.run()
-            } catch {
-                DispatchQueue.main.async { completion(.failure(ClaudeError.failed(notAvailableMessage))) }
+            if sessionId != nil && combined.contains("no conversation found") {
+                let (stdout2, stderr2, status2) = invoke(binary: binary, prompt: prompt, resuming: nil)
+                finish(stdout: stdout2, stderr: stderr2, status: status2, completion: completion)
                 return
             }
 
-            let timeout = DispatchWorkItem {
-                if process.isRunning { process.terminate() }
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 300, execute: timeout)
+            finish(stdout: stdout, stderr: stderr, status: status, completion: completion)
+        }
+    }
 
-            var outData = Data()
-            var errData = Data()
-            let group = DispatchGroup()
-            group.enter()
-            DispatchQueue.global().async {
-                outData = out.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                errData = err.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
-            group.wait()
-            process.waitUntilExit()
-            timeout.cancel()
+    private static func invoke(binary: String, prompt: String, resuming sessionId: String?)
+        -> (stdout: String, stderr: String, status: Int32) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        var args = ["-p", prompt, "--output-format", "json"]
+        if let sessionId { args += ["--resume", sessionId] }
+        process.arguments = args
+        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
 
-            let stdout = String(data: outData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let stderr = String(data: errData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let combined = (stdout + " " + stderr).lowercased()
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = (env["PATH"] ?? "") +
+            ":/opt/homebrew/bin:/usr/local/bin:\(NSHomeDirectory())/.local/bin"
+        process.environment = env
 
-            DispatchQueue.main.async {
-                if combined.contains("not logged in") || combined.contains("please run /login") {
-                    completion(.failure(ClaudeError.failed(notAvailableMessage)))
-                } else if process.terminationStatus == 0 && !stdout.isEmpty {
-                    completion(.success(stdout))
-                } else if !stderr.isEmpty {
-                    completion(.failure(ClaudeError.failed(stderr)))
+        let out = Pipe()
+        let err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+
+        do {
+            try process.run()
+        } catch {
+            return ("", "", -1)
+        }
+
+        let timeout = DispatchWorkItem {
+            if process.isRunning { process.terminate() }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 300, execute: timeout)
+
+        var outData = Data()
+        var errData = Data()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global().async {
+            outData = out.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async {
+            errData = err.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.wait()
+        process.waitUntilExit()
+        timeout.cancel()
+
+        let stdout = String(data: outData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: errData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (stdout, stderr, process.terminationStatus)
+    }
+
+    private static func finish(stdout: String, stderr: String, status: Int32,
+                                completion: @escaping (Result<ClaudeReply, Error>) -> Void) {
+        let combined = (stdout + " " + stderr).lowercased()
+
+        DispatchQueue.main.async {
+            if combined.contains("not logged in") || combined.contains("please run /login") {
+                completion(.failure(ClaudeError.failed(notAvailableMessage)))
+                return
+            }
+
+            if let data = stdout.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let result = json["result"] as? String,
+               let sessionId = json["session_id"] as? String {
+                let isError = json["is_error"] as? Bool ?? false
+                if isError {
+                    completion(.failure(ClaudeError.failed(result)))
                 } else {
-                    completion(.failure(ClaudeError.failed(notAvailableMessage)))
+                    completion(.success(ClaudeReply(text: result, sessionId: sessionId)))
                 }
+                return
+            }
+
+            if status == 0 && !stdout.isEmpty {
+                completion(.failure(ClaudeError.failed(stdout)))
+            } else if !stderr.isEmpty {
+                completion(.failure(ClaudeError.failed(stderr)))
+            } else {
+                completion(.failure(ClaudeError.failed(notAvailableMessage)))
             }
         }
     }

@@ -1,12 +1,21 @@
 import AppKit
 
-final class AnswerPanel: KeyPanel {
-    private let body: String
+final class AnswerPanel: KeyPanel, NSTextFieldDelegate {
+    /// Fires when the user submits a follow-up in the reply field.
+    var onReply: ((String) -> Void)?
 
-    private static let panelSize = NSSize(width: 460, height: 420)
+    private let buddyName: String
+    private var transcript: [(isUser: Bool, text: String)]
+
+    private let textView = NSTextView()
+    private let replyField = NSTextField()
+
+    private static let panelSize = NSSize(width: 460, height: 460)
+    private static let replyRowHeight: CGFloat = 40
 
     init(buddyName: String, body: String) {
-        self.body = body
+        self.buddyName = buddyName
+        self.transcript = [(false, body)]
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -69,13 +78,14 @@ final class AnswerPanel: KeyPanel {
         rule.layer?.backgroundColor = Theme.hairline.cgColor
         content.addSubview(rule)
 
-        // Scrollable answer
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height - 47))
+        // Scrollable transcript
+        let scrollHeight = size.height - 47 - Self.replyRowHeight
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: Self.replyRowHeight, width: size.width, height: scrollHeight))
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.autohidesScrollers = true
 
-        let textView = NSTextView(frame: NSRect(origin: .zero, size: scroll.contentSize))
+        textView.frame = NSRect(origin: .zero, size: scroll.contentSize)
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
@@ -87,9 +97,109 @@ final class AnswerPanel: KeyPanel {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                   height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.textStorage?.setAttributedString(Self.render(body))
         scroll.documentView = textView
         content.addSubview(scroll)
+
+        // Reply row
+        let replyRule = NSView(frame: NSRect(x: 0, y: Self.replyRowHeight, width: size.width, height: 1))
+        replyRule.wantsLayer = true
+        replyRule.layer?.backgroundColor = Theme.hairline.cgColor
+        content.addSubview(replyRule)
+
+        replyField.frame = NSRect(x: 18, y: 9, width: size.width - 100, height: 22)
+        replyField.isBezeled = false
+        replyField.isBordered = false
+        replyField.drawsBackground = false
+        replyField.focusRingType = .none
+        replyField.font = Theme.rounded(13, .regular)
+        replyField.textColor = Theme.ink
+        replyField.placeholderAttributedString = NSAttributedString(
+            string: "reply\u{2026}",
+            attributes: [
+                .font: Theme.rounded(13, .regular),
+                .foregroundColor: Theme.inkSoft.withAlphaComponent(0.7),
+            ]
+        )
+        replyField.maximumNumberOfLines = 1
+        replyField.cell?.usesSingleLineMode = true
+        replyField.cell?.isScrollable = true
+        replyField.delegate = self
+        content.addSubview(replyField)
+
+        let hint = NSTextField(labelWithString: "return to send")
+        hint.frame = NSRect(x: size.width - 118, y: 12, width: 100, height: 14)
+        hint.font = Theme.rounded(10, .medium)
+        hint.textColor = Theme.inkSoft.withAlphaComponent(0.8)
+        hint.alignment = .right
+        content.addSubview(hint)
+
+        refreshTranscript()
+    }
+
+    private func refreshTranscript() {
+        let out = NSMutableAttributedString()
+        for (index, turn) in transcript.enumerated() {
+            let label = turn.isUser ? "You" : buddyName
+            out.append(NSAttributedString(string: label + "\n", attributes: [
+                .font: Theme.rounded(12, .bold),
+                .foregroundColor: turn.isUser ? Theme.accent : Theme.ink,
+            ]))
+            out.append(Self.render(turn.text))
+            if index < transcript.count - 1 {
+                out.append(NSAttributedString(string: "\n"))
+            }
+        }
+        textView.textStorage?.setAttributedString(out)
+        textView.scrollToEndOfDocument(nil)
+    }
+
+    /// Appends the user's follow-up to the transcript. Call before kicking
+    /// off the request so it shows immediately.
+    func appendUserMessage(_ text: String) {
+        transcript.append((true, text))
+        refreshTranscript()
+    }
+
+    /// Appends a new reply once it comes back (or an error message).
+    func appendAssistantMessage(_ text: String) {
+        transcript.append((false, text))
+        refreshTranscript()
+    }
+
+    /// Disables the reply field while a request is in flight.
+    func setBusy(_ busy: Bool) {
+        replyField.isEnabled = !busy
+        let placeholder = busy ? "thinking\u{2026}" : "reply\u{2026}"
+        replyField.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: Theme.rounded(13, .regular),
+                .foregroundColor: Theme.inkSoft.withAlphaComponent(0.7),
+            ]
+        )
+        if busy {
+            replyField.stringValue = ""
+        }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            submitReply()
+            return true
+        }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            orderOut(nil)
+            return true
+        }
+        return false
+    }
+
+    private func submitReply() {
+        guard replyField.isEnabled else { return }
+        let text = replyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        replyField.stringValue = ""
+        onReply?(text)
     }
 
     func present(above point: NSPoint) {
@@ -102,12 +212,14 @@ final class AnswerPanel: KeyPanel {
         }
         setFrameOrigin(origin)
         makeKeyAndOrderFront(nil)
+        makeFirstResponder(replyField)
         enableOutsideClickDismiss()
     }
 
     @objc private func copyBody() {
+        guard let lastReply = transcript.last(where: { !$0.isUser })?.text else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(body, forType: .string)
+        NSPasteboard.general.setString(lastReply, forType: .string)
     }
 
     @objc private func closePanel() {
