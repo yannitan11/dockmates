@@ -1,7 +1,10 @@
 import Foundation
 
 enum ClaudeEvent {
-    case done
+    /// A session finished a turn. `project` is the basename of the session's
+    /// working directory when the Stop hook logged it (older hook formats
+    /// didn't, so it can be nil).
+    case done(project: String?)
     case needsPermission
     case waiting
 }
@@ -58,7 +61,10 @@ final class ClaudeWatcher {
         guard let type = parts.first else { return }
         switch type {
         case "stop":
-            onEvent?(.done)
+            let project = parts.count > 2
+                ? parts[2].trimmingCharacters(in: .whitespaces)
+                : ""
+            onEvent?(.done(project: project.isEmpty ? nil : project))
         case "notify":
             let rest = parts.dropFirst(2).joined(separator: " ").lowercased()
             onEvent?(rest.contains("permission") ? .needsPermission : .waiting)

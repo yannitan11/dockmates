@@ -213,6 +213,9 @@ final class Buddy {
     private var raining = false
     private var catLegs: [CAShapeLayer] = []
     private var catTail: CAShapeLayer?
+    private var badgeLayer: CALayer?
+    private var badgeText: CATextLayer?
+    private var badgeCount = 0
 
     var isCat: Bool { style.species == .cat }
     var isPet: Bool { style.species != .person }
@@ -230,6 +233,12 @@ final class Buddy {
     private(set) var beingDragged = false
     private(set) var busy = false
     private(set) var mode: Mode = .idle
+    /// Parked = dropped in a dock corner to stay out of the way. A person
+    /// settles onto a stool at a tiny desk and types on a laptop; a pet curls
+    /// up and naps. Cleared the moment the buddy is picked up again.
+    private(set) var parked = false
+    private var deskProps: CALayer?   // desk + laptop, in front of the figure
+    private var stoolProps: CALayer?  // stool, behind the figure
 
     var walkPhase: Double = .random(in: 0...6)
     var walkAmount: Double = 0
@@ -274,11 +283,19 @@ final class Buddy {
         catLegs = []
         catTail = nil
         umbrella = nil
+        deskProps = nil
+        stoolProps = nil
+        badgeLayer = nil
+        badgeText = nil
         buildLayers()
         applyContentsScale(root, scale)
         root.position = CGPoint(x: x, y: feetY)
         nextBlinkAt = lastNow + 3  // don't restyle mid-blink
         blinkUntil = 0
+        // Restyling wipes every root sublayer; put back anything that was
+        // riding along (the parked workstation, the unread-sessions badge).
+        if parked && !isPet { addWorkstation() }
+        if badgeCount > 0 { setBadge(badgeCount) }
         applyPose(now: lastNow)
     }
 
@@ -1026,6 +1043,44 @@ final class Buddy {
         return group
     }
 
+    // MARK: - Unattended-session badge
+
+    /// A little red counter pinned above the head, like an app icon badge:
+    /// how many Claude Code sessions have finished while you were looking
+    /// elsewhere. Hidden at zero.
+    func setBadge(_ count: Int) {
+        badgeCount = count
+        if count <= 0 {
+            badgeLayer?.removeFromSuperlayer()
+            badgeLayer = nil
+            badgeText = nil
+            return
+        }
+
+        if badgeLayer == nil {
+            let d: CGFloat = 16
+            let y: CGFloat = isPet ? 58 : 112
+            let circle = CAShapeLayer()
+            circle.frame = CGRect(x: 50, y: y, width: d, height: d)
+            circle.path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: d, height: d), transform: nil)
+            circle.fillColor = NSColor(hex: 0xE0574E).cgColor
+
+            let text = CATextLayer()
+            text.frame = CGRect(x: 0, y: 1.5, width: d, height: d - 3)
+            text.fontSize = 10
+            text.font = Theme.rounded(10, .bold)
+            text.foregroundColor = NSColor.white.cgColor
+            text.alignmentMode = .center
+            text.contentsScale = scale
+            circle.addSublayer(text)
+
+            root.addSublayer(circle)
+            badgeLayer = circle
+            badgeText = text
+        }
+        badgeText?.string = count > 9 ? "9+" : "\(count)"
+    }
+
     /// Show or hide the umbrella when the weather starts or stops raining.
     func setRaining(_ value: Bool) {
         guard value != raining else { return }
@@ -1127,6 +1182,66 @@ final class Buddy {
         waveStart = lastNow
     }
 
+    func setParked(_ value: Bool) {
+        guard value != parked else { return }
+        parked = value
+        targetX = nil
+        if value {
+            if !isPet { addWorkstation() }
+        } else {
+            deskProps?.removeFromSuperlayer()
+            stoolProps?.removeFromSuperlayer()
+            deskProps = nil
+            stoolProps = nil
+            nextWanderAt = lastNow + 2
+        }
+        applyPose(now: lastNow)
+    }
+
+    /// Stool + tiny desk + laptop for a parked person, in root coords
+    /// (drawn facing +x; the whole root flips with `facing`). The stool
+    /// slips behind the figure so the buddy sits on it; the desk renders in
+    /// front so the buddy is tucked in behind their workstation.
+    private func addWorkstation() {
+        deskProps?.removeFromSuperlayer()
+        stoolProps?.removeFromSuperlayer()
+
+        let wood = NSColor(hex: 0xC69B6D)
+        let woodDark = NSColor(hex: 0x8A6A4B)
+
+        // Stool behind the buddy: a seat right under the hips + two legs.
+        let stool = CALayer()
+        stool.frame = root.bounds
+        stool.addSublayer(rounded(CGRect(x: 20, y: 0, width: 4, height: 27), 2, woodDark))
+        stool.addSublayer(rounded(CGRect(x: 42, y: 0, width: 4, height: 27), 2, woodDark))
+        stool.addSublayer(rounded(CGRect(x: 15, y: 26, width: 36, height: 7), 3.5, wood))
+        root.insertSublayer(stool, below: figure)
+        stoolProps = stool
+
+        // Desk in front, with the laptop on top: a dark base slab and a
+        // screen panel leaning away from the typist, seen from behind (so
+        // just a dark back with a little round accent sticker).
+        let desk = CALayer()
+        desk.frame = root.bounds
+        desk.addSublayer(rounded(CGRect(x: 52, y: 0, width: 4, height: 46), 2, woodDark))
+        desk.addSublayer(rounded(CGRect(x: 82, y: 0, width: 4, height: 46), 2, woodDark))
+        desk.addSublayer(rounded(CGRect(x: 46, y: 45, width: 46, height: 6), 3, wood))
+
+        let laptopDark = NSColor(hex: 0x4A443C)
+        desk.addSublayer(rounded(CGRect(x: 54, y: 51, width: 24, height: 3.5), 1.75, laptopDark))
+        let screen = rounded(CGRect(x: 72, y: 53, width: 14, height: 17), 3, laptopDark)
+        setAnchor(screen, CGPoint(x: 0.2, y: 0.05))
+        screen.transform = CATransform3DMakeRotation(-0.14, 0, 0, 1)
+        screen.addSublayer(ellipse(CGRect(x: 5, y: 6.5, width: 4.5, height: 4.5), Theme.accent))
+        desk.addSublayer(screen)
+
+        root.addSublayer(desk)
+        deskProps = desk
+
+        applyContentsScale(stool, scale)
+        applyContentsScale(desk, scale)
+    }
+
     func beginDrag() {
         beingDragged = true
         targetX = nil
@@ -1151,7 +1266,8 @@ final class Buddy {
 
         switch mode {
         case .think:
-            if targetX == nil && now >= nextPaceAt {
+            // A parked buddy thinks in place at their desk instead of pacing.
+            if !parked && targetX == nil && now >= nextPaceAt {
                 let lo = max(bounds.lowerBound, thinkOrigin - 40)
                 let hi = min(bounds.upperBound, thinkOrigin + 40)
                 if lo < hi { targetX = .random(in: lo...hi) }
@@ -1228,6 +1344,8 @@ final class Buddy {
             }
         }
         if beingDragged { lift += 7 }
+        // A napping pet settles lower to the ground.
+        if parked && isPet && !beingDragged { lift -= 4 }
 
         let breathe = (1 - walkAmount) * 0.015 * sin(now * 2.2)
         let held: CGFloat = beingDragged ? 1.07 : 1
@@ -1240,6 +1358,9 @@ final class Buddy {
 
         if mode == .think {
             headGroup.transform = CATransform3DMakeRotation(CGFloat(sin(now * 1.6)) * 0.07, 0, 0, 1)
+        } else if parked && !isPet && !beingDragged {
+            // Eyes-on-the-screen: a slight steady tilt down toward the laptop.
+            headGroup.transform = CATransform3DMakeRotation(-0.07, 0, 0, 1)
         } else {
             headGroup.transform = CATransform3DIdentity
         }
@@ -1248,17 +1369,33 @@ final class Buddy {
             blinkUntil = now + 0.12
             nextBlinkAt = now + .random(in: 2.5...5.5)
         }
-        let eyeScale: CGFloat = now < blinkUntil ? 0.15 : 1
+        // A napping pet keeps its eyes closed the whole time it's parked.
+        let asleep = parked && isPet && !beingDragged
+        let eyeScale: CGFloat = (asleep || now < blinkUntil) ? 0.15 : 1
         for eye in eyes {
             eye.transform = CATransform3DMakeScale(1, eyeScale, 1)
         }
 
         root.transform = CATransform3DMakeScale(facing, 1, 1)
+        // The root flips with facing; give the badge the same flip again so
+        // its digits never render mirrored.
+        badgeLayer?.transform = CATransform3DMakeScale(facing, 1, 1)
     }
 
     private func applyPersonLimbs(now: TimeInterval, swing: CGFloat) {
         legL.transform = CATransform3DMakeRotation(swing * 0.38, 0, 0, 1)
         legR.transform = CATransform3DMakeRotation(-swing * 0.38, 0, 0, 1)
+        if parked && !beingDragged {
+            // Seated at the desk: legs swing forward under the tabletop
+            // (positive rotation moves feet toward +x, the facing direction),
+            // and both hands hover over the laptop with a light typing bob.
+            legL.transform = CATransform3DMakeRotation(1.15, 0, 0, 1)
+            legR.transform = CATransform3DMakeRotation(1.0, 0, 0, 1)
+            let tap = CGFloat(sin(now * 13))
+            armL.transform = CATransform3DMakeRotation(1.2 + tap * 0.07, 0, 0, 1)
+            armR.transform = CATransform3DMakeRotation(1.0 - tap * 0.07, 0, 0, 1)
+            return
+        }
         if beingDragged {
             // Arms up and outward, legs dangling straight, like being picked up.
             // Each arm's rest pose hangs straight down from a shoulder-top pivot,
@@ -1299,6 +1436,15 @@ final class Buddy {
             // Legs dangle straight, tail swishes a little while held.
             for leg in catLegs { leg.transform = CATransform3DIdentity }
             catTail?.transform = CATransform3DMakeRotation(CGFloat(sin(now * 6)) * 0.12, 0, 0, 1)
+            return
+        }
+        if parked {
+            // Curled up asleep: legs tucked under the body, tail drifting
+            // in a slow content sway.
+            for leg in catLegs {
+                leg.transform = CATransform3DMakeScale(1, 0.3, 1)
+            }
+            catTail?.transform = CATransform3DMakeRotation(CGFloat(sin(now * 1.1)) * 0.08, 0, 0, 1)
             return
         }
         // Diagonal gait: catLegs order is [back-far, front-far, back-near,

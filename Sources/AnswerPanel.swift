@@ -13,9 +13,16 @@ final class AnswerPanel: KeyPanel, NSTextFieldDelegate {
     private static let panelSize = NSSize(width: 460, height: 460)
     private static let replyRowHeight: CGFloat = 40
 
-    init(buddyName: String, body: String) {
+    /// `prompt` optionally seeds the transcript with the user's question
+    /// above the answer — used when reopening a past answer from the menu,
+    /// where the question is no longer on screen anywhere else.
+    init(buddyName: String, body: String, prompt: String? = nil) {
         self.buddyName = buddyName
-        self.transcript = [(false, body)]
+        if let prompt {
+            self.transcript = [(true, prompt), (false, body)]
+        } else {
+            self.transcript = [(false, body)]
+        }
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.panelSize),
             styleMask: [.borderless, .nonactivatingPanel],

@@ -73,6 +73,13 @@ final class OverlayController {
         "beep boop",
     ]
 
+    private let parkedChatter = [
+        "tap tap tap",
+        "in the zone",
+        "so focused rn",
+        "shipping it",
+    ]
+
     private let greetings = ["hey!", "oh hi!", "fancy seeing you here", "hiya"]
     private let hoverGreetings = ["hi!", "hello!", "hey there"]
     private let rainChatter = [
@@ -312,13 +319,21 @@ final class OverlayController {
 
         CATransaction.commit()
 
-        // Idle chatter (rain-flavored when it's actually raining)
+        // Idle chatter (rain-flavored when it's actually raining; a parked
+        // buddy murmurs work noises instead, and a napping pet just snoozes)
         if now >= nextChatterAt {
             nextChatterAt = now + .random(in: 24...48)
             let idle = buddies.filter { !$0.busy && !$0.bubble.visible }
-            let pool = (raining && Bool.random()) ? rainChatter : chatter
-            if let buddy = idle.randomElement(), let line = pool.randomElement() {
-                buddy.bubble.show(line, for: 3.2)
+            if let buddy = idle.randomElement() {
+                let pool: [String]
+                if buddy.parked {
+                    pool = buddy.isPet ? ["zzz...", "...zzz"] : parkedChatter
+                } else {
+                    pool = (raining && Bool.random()) ? rainChatter : chatter
+                }
+                if let line = pool.randomElement() {
+                    buddy.bubble.show(line, for: 3.2)
+                }
             }
         }
 
@@ -328,7 +343,8 @@ final class OverlayController {
                 for j in (i + 1)..<buddies.count {
                     let a = buddies[i]
                     let b = buddies[j]
-                    guard !a.busy, !b.busy, !a.beingDragged, !b.beingDragged else { continue }
+                    guard !a.busy, !b.busy, !a.beingDragged, !b.beingDragged,
+                          !a.parked, !b.parked else { continue }
                     // Long cooldown: two buddies sharing a dock cross paths
                     // often, and this should read as an occasional charming
                     // moment, not a running conversation every time they meet.
@@ -406,6 +422,7 @@ final class OverlayController {
         guard let buddy = pressedBuddy else { return }
         if !didDrag && abs(point.x - pressStartX) > dragThreshold {
             didDrag = true
+            buddy.setParked(false)  // picked up: off the stool / awake again
             buddy.beginDrag()
             NSCursor.closedHand.set()
         }
@@ -433,10 +450,21 @@ final class OverlayController {
             // Dropping a buddy right at either end of the dock parks it
             // there so it stops strolling and doesn't wander back into view
             // while you're trying to focus; dropping it anywhere else lets
-            // it resume wandering normally.
+            // it resume wandering normally. A parked person settles in at a
+            // tiny desk; a parked pet curls up for a nap.
             buddy.wanderEnabled = !inCorner
+            if inCorner {
+                // Face back toward the dock so the desk does too.
+                buddy.facing = buddy.x <= buddy.bounds.lowerBound + cornerZone ? 1 : -1
+            }
+            buddy.setParked(inCorner)
             if !buddy.busy {
-                let line = buddy.isPet ? petSound(buddy) : (inCorner ? "parking here" : "wheee!")
+                let line: String
+                if buddy.isPet {
+                    line = inCorner ? "zzz..." : petSound(buddy)
+                } else {
+                    line = inCorner ? "clocking in!" : "wheee!"
+                }
                 buddy.bubble.show(line, for: 1.4)
             }
         } else if buddy.isPet {
@@ -583,6 +611,64 @@ enum SnapshotRenderer {
         guard let png = rep.representation(using: .png, properties: [:]) else { return }
         try? png.write(to: URL(fileURLWithPath: path))
         print("cat written to \(path)")
+    }
+
+    /// The parked (dragged-to-a-corner) looks: a person seated at the tiny
+    /// desk typing, mirrored both ways, a napping pet, and an unread-badge
+    /// wearer, all in one strip for design review.
+    static func writeParked(to path: String) {
+        let width = 1000
+        let height = 340
+        let zoom: CGFloat = 2.2
+
+        let stage = CALayer()
+        stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
+
+        let juno = Buddy(style: .juno, scale: 3, feetY: 12)
+        juno.x = 130
+        stage.addSublayer(juno.root)
+        juno.setParked(true)
+        juno.setBadge(3)
+        juno.forcePose(phase: 0, walk: 0)
+        juno.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+
+        let bo = Buddy(style: .bo, scale: 3, feetY: 12)
+        bo.x = 430
+        bo.facing = -1
+        stage.addSublayer(bo.root)
+        bo.setParked(true)
+        bo.forcePose(phase: 0, walk: 0)
+        bo.root.transform = CATransform3DMakeScale(zoom * bo.facing, zoom, 1)
+
+        let mochi = Buddy(style: .mochi, scale: 3, feetY: 12)
+        mochi.x = 650
+        stage.addSublayer(mochi.root)
+        mochi.setParked(true)
+        mochi.forcePose(phase: 0, walk: 0)
+        mochi.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+
+        let tofu = Buddy(style: .tofu, scale: 3, feetY: 12)
+        tofu.x = 850
+        stage.addSublayer(tofu.root)
+        tofu.setBadge(12)
+        tofu.forcePose(phase: 0, walk: 0)
+        tofu.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width * 2, pixelsHigh: height * 2,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: width, height: height)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        stage.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("parked written to \(path)")
     }
 
     static func writeRain(to path: String) {

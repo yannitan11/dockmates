@@ -77,6 +77,11 @@ if let index = CommandLine.arguments.firstIndex(of: "--snapshot-rain"),
     SnapshotRenderer.writeRain(to: CommandLine.arguments[index + 1])
     exit(0)
 }
+if let index = CommandLine.arguments.firstIndex(of: "--snapshot-parked"),
+   CommandLine.arguments.count > index + 1 {
+    SnapshotRenderer.writeParked(to: CommandLine.arguments[index + 1])
+    exit(0)
+}
 if let index = CommandLine.arguments.firstIndex(of: "--snapshot-walk"),
    CommandLine.arguments.count > index + 1 {
     SnapshotRenderer.writeWalk(to: CommandLine.arguments[index + 1])

@@ -51,6 +51,24 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
     private let field = NSTextField()
     private let caption = NSTextField(labelWithString: "")
 
+    // Up/down-arrow prompt history, shared across panels via UserDefaults.
+    // While browsing, `historyIndex` is the offset into `history` (0 = most
+    // recent) and `draft` holds whatever was typed before browsing began.
+    private var history: [String] = []
+    private var historyIndex: Int?
+    private var draft = ""
+
+    private static let historyKey = "askHistory"
+    private static let historyCap = 20
+
+    static func recordPrompt(_ prompt: String) {
+        var history = UserDefaults.standard.stringArray(forKey: historyKey) ?? []
+        history.removeAll { $0 == prompt }  // resurface repeats at the top
+        history.insert(prompt, at: 0)
+        if history.count > historyCap { history.removeLast(history.count - historyCap) }
+        UserDefaults.standard.set(history, forKey: historyKey)
+    }
+
     private static let panelSize = NSSize(width: 400, height: 116)
 
     init() {
@@ -107,7 +125,7 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
         rule.layer?.backgroundColor = Theme.accent.withAlphaComponent(0.25).cgColor
         content.addSubview(rule)
 
-        let hint = NSTextField(labelWithString: "return to send  ·  esc to close")
+        let hint = NSTextField(labelWithString: "\u{2191} history  ·  return to send  ·  esc to close")
         hint.frame = NSRect(x: 22, y: 14, width: 356, height: 14)
         hint.font = Theme.rounded(10.5, .medium)
         hint.textColor = Theme.inkSoft.withAlphaComponent(0.8)
@@ -118,6 +136,9 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
     func present(above point: NSPoint, listener: String) {
         caption.attributedStringValue = captionText(listener)
         field.stringValue = ""
+        history = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+        historyIndex = nil
+        draft = ""
 
         var origin = NSPoint(x: point.x - Self.panelSize.width / 2, y: point.y + 10)
         if let screen = NSScreen.screens.first {
@@ -147,8 +168,29 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
     private func submit() {
         let prompt = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
+        Self.recordPrompt(prompt)
         orderOut(nil)
         onSubmit?(prompt)
+    }
+
+    /// Steps through prompt history: up = older, down = newer, past the
+    /// newest = back to whatever was being typed.
+    private func browseHistory(_ step: Int) {
+        guard !history.isEmpty else { return }
+        var index = (historyIndex ?? -1) + step
+        if index < -1 { index = -1 }
+        if index >= history.count { index = history.count - 1 }
+
+        if index == -1 {
+            historyIndex = nil
+            field.stringValue = draft
+        } else {
+            if historyIndex == nil { draft = field.stringValue }
+            historyIndex = index
+            field.stringValue = history[index]
+        }
+        // Park the caret at the end, like a shell.
+        field.currentEditor()?.selectedRange = NSRange(location: field.stringValue.count, length: 0)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -158,6 +200,14 @@ final class AskPanel: KeyPanel, NSTextFieldDelegate {
         }
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
             orderOut(nil)
+            return true
+        }
+        if commandSelector == #selector(NSResponder.moveUp(_:)) {
+            browseHistory(1)
+            return true
+        }
+        if commandSelector == #selector(NSResponder.moveDown(_:)) {
+            browseHistory(-1)
             return true
         }
         return false

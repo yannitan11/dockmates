@@ -1,5 +1,13 @@
 import AppKit
 
+/// One remembered ask: the question, Claude's answer, and the CLI session id
+/// so reopening it from the menu can continue the same conversation.
+struct RecentAnswer: Codable {
+    let prompt: String
+    let text: String
+    let sessionId: String
+}
+
 final class AppController: NSObject, NSApplicationDelegate {
     private var overlay: OverlayController!
     private var statusItem: NSStatusItem!
@@ -19,11 +27,24 @@ final class AppController: NSObject, NSApplicationDelegate {
     // conversation, so follow-up replies continue it via `--resume`.
     private var answerSessionId: String?
 
+    // Last few asks + answers, reopenable from the menu bar. Persisted so
+    // they survive an app restart.
+    private var recentAnswers: [RecentAnswer] = []
+    private let recentAnswersKey = "recentAnswers"
+    private let recentAnswersCap = 10
+    private let recentAnswersMenu = NSMenu()
+
     private let watcher = ClaudeWatcher()
     private let notifier = Notifier()
     private let claudeBundleID = "com.anthropic.claudefordesktop"
     private var watchClaude = UserDefaults.standard.object(forKey: "watchClaude") as? Bool ?? true
     private var lastNudgeAt: TimeInterval = 0
+
+    // How many sessions have finished since the user last checked in, shown
+    // as a little badge on the buddy that delivered the latest nudge. Cleared
+    // when the Claude app comes to the front or any buddy is clicked.
+    private var unattendedCount = 0
+    private weak var badgeBuddy: Buddy?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // First run ever: turn on "launch at login" by default so Dockmates
@@ -34,8 +55,11 @@ final class AppController: NSObject, NSApplicationDelegate {
             LoginItem.setEnabled(true)
         }
 
+        loadRecentAnswers()
+
         overlay = OverlayController()
         overlay.onBuddyClicked = { [weak self] buddy in
+            self?.clearUnattended()
             self?.openAsk(for: buddy)
         }
         overlay.onBuddyRightClicked = { [weak self] buddy in
@@ -72,6 +96,18 @@ final class AppController: NSObject, NSApplicationDelegate {
 
         // Keep real local weather cached so buddy weather-chat is accurate.
         WeatherService.shared.start()
+
+        // Tabbing back to the Claude app means the finished sessions have
+        // been seen; retire the badge.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier == self.claudeBundleID else { return }
+            self.clearUnattended()
+        }
     }
 
     private func handleClaudeEvent(_ event: ClaudeEvent) {
@@ -80,18 +116,30 @@ final class AppController: NSObject, NSApplicationDelegate {
         // Stay quiet while the user is already looking at Claude.
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == claudeBundleID { return }
 
+        // Every unattended finish bumps the badge, even inside the nudge
+        // debounce window, so a burst of sessions still counts each one.
+        if case .done = event {
+            unattendedCount += 1
+        }
+
         let now = CACurrentMediaTime()
-        if now - lastNudgeAt < 3 { return }  // debounce bursts
-        lastNudgeAt = now
+        let debounced = now - lastNudgeAt < 3
+        if !debounced { lastNudgeAt = now }
 
         let bubble: String
         let title: String
         let body: String
         switch event {
-        case .done:
-            bubble = "Claude's all done!"
-            title = "Claude Code finished"
-            body = "Your task wrapped up. Head back when you're ready."
+        case .done(let project):
+            if let project {
+                bubble = "\(project) is done!"
+                title = "Claude Code finished"
+                body = "Your \(project) session wrapped up. Head back when you're ready."
+            } else {
+                bubble = "Claude's all done!"
+                title = "Claude Code finished"
+                body = "Your task wrapped up. Head back when you're ready."
+            }
         case .needsPermission:
             bubble = "Claude needs your OK"
             title = "Claude Code needs permission"
@@ -105,10 +153,28 @@ final class AppController: NSObject, NSApplicationDelegate {
         // A pet delivering the nudge is fine and cute, but always post the
         // system notification even if the dock is empty.
         if let buddy = overlay.firstFreeBuddy() {
-            buddy.celebrate()
-            buddy.bubble.show(bubble, for: 18)
+            if !debounced {
+                buddy.celebrate()
+                buddy.bubble.show(bubble, for: 18)
+            }
+            // Move the badge onto whichever buddy nudged most recently.
+            if unattendedCount > 0 {
+                if badgeBuddy !== buddy { badgeBuddy?.setBadge(0) }
+                badgeBuddy = buddy
+                buddy.setBadge(unattendedCount)
+            }
         }
-        notifier.post(title: title, body: body)
+        if !debounced {
+            notifier.post(title: title, body: body)
+        }
+    }
+
+    /// The user has seen what finished: drop the badge back to zero.
+    private func clearUnattended() {
+        guard unattendedCount > 0 else { return }
+        unattendedCount = 0
+        badgeBuddy?.setBadge(0)
+        badgeBuddy = nil
     }
 
     private func setupStatusItem() {
@@ -130,6 +196,12 @@ final class AppController: NSObject, NSApplicationDelegate {
         let routines = NSMenuItem(title: "Routines", action: #selector(routinesFromMenu), keyEquivalent: "r")
         routines.target = self
         menu.addItem(routines)
+
+        // Recent answers, rebuilt from `recentAnswers` every time it opens.
+        recentAnswersMenu.delegate = self
+        let recents = NSMenuItem(title: "Recent answers", action: nil, keyEquivalent: "")
+        recents.submenu = recentAnswersMenu
+        menu.addItem(recents)
 
         // "On the dock" submenu: check on/off each possible dockmate.
         let dockmatesMenu = NSMenu()
@@ -172,6 +244,41 @@ final class AppController: NSObject, NSApplicationDelegate {
     @objc private func askFromMenu() {
         guard let buddy = overlay.firstFreePerson() else { return }
         openAsk(for: buddy)
+    }
+
+    // MARK: - Recent answers
+
+    private func loadRecentAnswers() {
+        guard let data = UserDefaults.standard.data(forKey: recentAnswersKey),
+              let saved = try? JSONDecoder().decode([RecentAnswer].self, from: data) else { return }
+        recentAnswers = saved
+    }
+
+    private func recordRecentAnswer(prompt: String, text: String, sessionId: String) {
+        recentAnswers.insert(RecentAnswer(prompt: prompt, text: text, sessionId: sessionId), at: 0)
+        if recentAnswers.count > recentAnswersCap {
+            recentAnswers.removeLast(recentAnswers.count - recentAnswersCap)
+        }
+        if let data = try? JSONEncoder().encode(recentAnswers) {
+            UserDefaults.standard.set(data, forKey: recentAnswersKey)
+        }
+    }
+
+    @objc private func openRecentAnswer(_ sender: NSMenuItem) {
+        guard let index = sender.representedObject as? Int,
+              recentAnswers.indices.contains(index),
+              let buddy = overlay.firstFreePerson() else { return }
+        let recent = recentAnswers[index]
+        // Continue that conversation: follow-ups typed into the reopened
+        // panel resume the same CLI session (or start fresh if it expired).
+        answerSessionId = recent.sessionId
+        let panel = AnswerPanel(buddyName: buddy.style.name, body: recent.text, prompt: recent.prompt)
+        panel.onReply = { [weak self] reply in
+            self?.startTask(reply, buddy: buddy, isFollowUp: true)
+        }
+        panel.present(above: overlay.screenPoint(above: buddy))
+        answerPanel = panel
+        answerBuddy = buddy
     }
 
     @objc private func toggleDockmate(_ sender: NSMenuItem) {
@@ -307,6 +414,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                     panel.setBusy(false)
                     panel.appendAssistantMessage(reply.text)
                 } else {
+                    self.recordRecentAnswer(prompt: prompt, text: reply.text, sessionId: reply.sessionId)
                     self.presentAnswer(reply.text, buddy: buddy)
                 }
             case .failure(let error):
@@ -331,5 +439,29 @@ final class AppController: NSObject, NSApplicationDelegate {
         panel.present(above: overlay.screenPoint(above: buddy))
         answerPanel = panel
         answerBuddy = buddy
+    }
+}
+
+extension AppController: NSMenuDelegate {
+    /// Rebuilds the "Recent answers" submenu each time it opens.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === recentAnswersMenu else { return }
+        menu.removeAllItems()
+        if recentAnswers.isEmpty {
+            let empty = NSMenuItem(title: "Nothing asked yet", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+            return
+        }
+        for (index, recent) in recentAnswers.enumerated() {
+            var title = recent.prompt
+            if title.count > 44 {
+                title = String(title.prefix(44)) + "\u{2026}"
+            }
+            let item = NSMenuItem(title: title, action: #selector(openRecentAnswer(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = index
+            menu.addItem(item)
+        }
     }
 }
