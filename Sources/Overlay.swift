@@ -443,12 +443,6 @@ final class OverlayController {
         interacting = false
     }
 
-    /// A happy little reaction for a pet (used for click and right-click).
-    func petReaction(_ buddy: Buddy) {
-        buddy.hop()
-        buddy.bubble.show(petSound(buddy), for: 1.6)
-    }
-
     /// Screen-space point just above a buddy's head, for anchoring panels.
     func screenPoint(above buddy: Buddy) -> NSPoint {
         NSPoint(x: window.frame.minX + buddy.x,
@@ -540,7 +534,7 @@ enum SnapshotRenderer {
     }
 
     static func writeCat(to path: String) {
-        let width = 900
+        let width = 1880
         let height = 340
         let zoom: CGFloat = 3.0
 
@@ -548,19 +542,20 @@ enum SnapshotRenderer {
         stage.frame = CGRect(x: 0, y: 0, width: width, height: height)
         stage.backgroundColor = NSColor(hex: 0xE9E4DB).cgColor
 
-        // Cat standing + walking, dog standing + walking
-        let pets: [(BuddyStyle, Double, Double)] = [
-            (.mochi, 0, 0), (.mochi, 1.2, 1),
-            (.tofu, 0, 0), (.tofu, 1.2, 1),
-        ]
+        // Each pet wearing each accessory, to review the dress-up options.
+        let accessories: [PetAccessory] = [.none, .bow, .bandana, .hat]
         var x: CGFloat = 120
-        for (style, phase, walk) in pets {
-            let pet = Buddy(style: style, scale: 3, feetY: 20)
-            pet.x = x
-            stage.addSublayer(pet.root)
-            pet.forcePose(phase: phase, walk: walk)
-            pet.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
-            x += 220
+        for base in [BuddyStyle.mochi, BuddyStyle.tofu] {
+            for acc in accessories {
+                var s = base
+                s.petAccessory = acc
+                let pet = Buddy(style: s, scale: 3, feetY: 20)
+                pet.x = x
+                stage.addSublayer(pet.root)
+                pet.forcePose(phase: 0, walk: 0)
+                pet.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+                x += 230
+            }
         }
 
         guard let rep = NSBitmapImageRep(

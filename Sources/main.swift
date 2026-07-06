@@ -9,10 +9,11 @@ if let index = CommandLine.arguments.firstIndex(of: "--snapshot"),
 }
 if let index = CommandLine.arguments.firstIndex(of: "--snapshot-dressing-room"),
    CommandLine.arguments.count > index + 1 {
+    // Pet first so the snapshot shows the pet-specific rows.
+    let mochi = Buddy(style: .mochi, scale: 2, feetY: 8)
     let juno = Buddy(style: .juno, scale: 2, feetY: 8)
-    let bo = Buddy(style: .bo, scale: 2, feetY: 8)
     let panel = StylePanel()
-    panel.snapshotFullContent(buddies: [juno, bo], to: CommandLine.arguments[index + 1])
+    panel.snapshotFullContent(buddies: [mochi, juno], to: CommandLine.arguments[index + 1])
     exit(0)
 }
 // Debug: fetch and print the live weather summary, to confirm the real

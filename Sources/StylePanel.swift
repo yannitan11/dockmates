@@ -191,12 +191,16 @@ final class StylePanel: KeyPanel {
                 self?.rebuild()
             }
         } + [chip("Reset", selected: false) { [weak self] in
-            guard let self else { return }
-            let defaults = BuddyStyle.defaults
-            if self.currentIndex < defaults.count {
-                self.apply { $0 = defaults[self.currentIndex] }
-            }
+            self?.resetCurrent()
         }])
+
+        // Pets get their own compact set of controls (fur, collar, accessory)
+        // rather than the human hair/hat/top/... rows.
+        if s.species != .person {
+            addPetRows(s)
+            rowsContainer.frame.size.height = cursorY + 8
+            return
+        }
 
         addRow("Skin", Theme.skinTones.map { hex in
             swatch(hex, selected: s.skin == hex) { [weak self] in
@@ -282,6 +286,36 @@ final class StylePanel: KeyPanel {
         ])
 
         rowsContainer.frame.size.height = cursorY + 8
+    }
+
+    /// Reset the current dockmate to its roster default (works for people and
+    /// pets, matched by name).
+    private func resetCurrent() {
+        let name = buddies[currentIndex].style.name
+        if let def = BuddyStyle.roster.first(where: { $0.name == name }) {
+            apply { $0 = def }
+        }
+    }
+
+    /// Rows shown when the selected dockmate is a pet: fur color, collar
+    /// color, and a dress-up accessory (with its own color).
+    private func addPetRows(_ s: BuddyStyle) {
+        addRow("Fur", Theme.furTones.map { hex in
+            swatch(hex, selected: s.outfit == hex) { [weak self] in self?.apply { $0.outfit = hex } }
+        })
+        addRow("Collar", Theme.clothing.map { hex in
+            swatch(hex, selected: s.neckColor == hex) { [weak self] in self?.apply { $0.neckColor = hex } }
+        })
+        addRow("Accessory", PetAccessory.allCases.map { kind in
+            chip(kind.rawValue, selected: s.petAccessory == kind) { [weak self] in
+                self?.apply { $0.petAccessory = kind }
+            }
+        })
+        if s.petAccessory != .none {
+            addRow("Accessory color", Theme.clothing.map { hex in
+                swatch(hex, selected: s.hat == hex) { [weak self] in self?.apply { $0.hat = hex } }
+            })
+        }
     }
 
     /// Lays out a label plus a run of chips/swatches, wrapping onto

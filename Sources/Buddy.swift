@@ -7,6 +7,7 @@ enum BottomKind: String, Codable, CaseIterable { case pants, skirt }
 enum TopKind: String, Codable, CaseIterable { case singlet, tshirt, cardigan, jacket }
 enum NeckKind: String, Codable, CaseIterable { case none, scarf, tie, bow }
 enum Species: String, Codable { case person, cat, dog }
+enum PetAccessory: String, Codable, CaseIterable { case none, bow, bandana, hat }
 
 /// Everything editable about a buddy. Colors are stored as hex so the whole
 /// style round-trips through JSON for persistence.
@@ -28,12 +29,18 @@ struct BuddyStyle: Codable {
     var hasTote: Bool
     var strollSpeed: CGFloat
     var species: Species = .person
+    var petAccessory: PetAccessory = .none
+
+    // For a pet, `outfit` = fur color, `neckColor` = collar color, and the
+    // otherwise-unused `hat` = accessory color.
+    var accessoryColor: NSColor { NSColor(hex: hat) }
 
     // Explicit keys so decoding can also read fields older builds used
     // (outfitDetail, scarfOn, scarf) that no longer have matching properties.
     private enum CodingKeys: String, CodingKey {
         case name, skin, outfit, pants, shoes, hatKind, hat, hairKind, hair
-        case bottomKind, topKind, glasses, neckKind, neckColor, hasTote, strollSpeed, species
+        case bottomKind, topKind, glasses, neckKind, neckColor, hasTote, strollSpeed
+        case species, petAccessory
         case outfitDetail, scarfOn, scarf
     }
 
@@ -57,6 +64,7 @@ struct BuddyStyle: Codable {
         hasTote = try c.decode(Bool.self, forKey: .hasTote)
         strollSpeed = try c.decode(CGFloat.self, forKey: .strollSpeed)
         species = try c.decodeIfPresent(Species.self, forKey: .species) ?? .person
+        petAccessory = try c.decodeIfPresent(PetAccessory.self, forKey: .petAccessory) ?? .none
 
         if let top = try c.decodeIfPresent(TopKind.self, forKey: .topKind) {
             topKind = top
@@ -82,7 +90,8 @@ struct BuddyStyle: Codable {
          hatKind: HatKind, hat: UInt32, hairKind: HairKind, hair: UInt32,
          bottomKind: BottomKind = .pants, topKind: TopKind = .cardigan, glasses: Bool,
          neckKind: NeckKind = .none, neckColor: UInt32 = 0xF2C14E,
-         hasTote: Bool, strollSpeed: CGFloat, species: Species = .person) {
+         hasTote: Bool, strollSpeed: CGFloat, species: Species = .person,
+         petAccessory: PetAccessory = .none) {
         self.name = name
         self.skin = skin
         self.outfit = outfit
@@ -100,6 +109,7 @@ struct BuddyStyle: Codable {
         self.hasTote = hasTote
         self.strollSpeed = strollSpeed
         self.species = species
+        self.petAccessory = petAccessory
     }
 
     // Encode only the current fields; the legacy CodingKeys cases above
@@ -123,6 +133,7 @@ struct BuddyStyle: Codable {
         try c.encode(hasTote, forKey: .hasTote)
         try c.encode(strollSpeed, forKey: .strollSpeed)
         try c.encode(species, forKey: .species)
+        try c.encode(petAccessory, forKey: .petAccessory)
     }
 
     var skinColor: NSColor { NSColor(hex: skin) }
@@ -156,7 +167,7 @@ struct BuddyStyle: Codable {
     static let mochi = BuddyStyle(
         name: "Mochi",
         skin: 0xF3C9A6, outfit: 0xE7A867, pants: 0x2E2A26, shoes: 0x2E2A26,
-        hatKind: .none, hat: 0x2E2A26,
+        hatKind: .none, hat: 0xE0574E,  // accessory color
         hairKind: .none, hair: 0x2E2A26,
         topKind: .cardigan, glasses: false, neckKind: .none, neckColor: 0xE0574E,
         hasTote: false, strollSpeed: 52, species: .cat
@@ -167,7 +178,7 @@ struct BuddyStyle: Codable {
     static let tofu = BuddyStyle(
         name: "Tofu",
         skin: 0xF3C9A6, outfit: 0xF5F1E8, pants: 0x2E2A26, shoes: 0x2E2A26,
-        hatKind: .none, hat: 0x2E2A26,
+        hatKind: .none, hat: 0x3B5BDB,  // accessory color
         hairKind: .none, hair: 0x2E2A26,
         topKind: .cardigan, glasses: false, neckKind: .none, neckColor: 0x3B5BDB,
         hasTote: false, strollSpeed: 58, species: .dog
@@ -727,24 +738,11 @@ final class Buddy {
         nose.fillColor = Theme.blush.cgColor
         head.addSublayer(nose)
 
-        // Mouth: the classic kawaii cat "\u{03C9}" — two little dips hanging
-        // symmetrically from the nose tip (previously a lopsided one-sided
-        // hook). Each arc sweeps pi -> 0 counterclockwise, i.e. through the
-        // bottom of its circle, so both bumps dip downward.
-        let mouth = CAShapeLayer()
-        let mp = CGMutablePath()
-        mp.move(to: CGPoint(x: 12.5, y: 8.3))
-        mp.addArc(center: CGPoint(x: 14.5, y: 8.3), radius: 2,
-                  startAngle: .pi, endAngle: 0, clockwise: false)
-        mp.addArc(center: CGPoint(x: 18.5, y: 8.3), radius: 2,
-                  startAngle: .pi, endAngle: 0, clockwise: false)
-        mouth.path = mp
-        mouth.strokeColor = Theme.ink.cgColor
-        mouth.fillColor = nil
-        mouth.lineWidth = 1.2
-        mouth.lineCap = .round
-        mouth.lineJoin = .round
-        head.addSublayer(mouth)
+        // Mouth: the classic kawaii cat "\u{03C9}" — two soft smile dips ("\u{203F}\u{203F}")
+        // sharing a high centre point right under the nose, each dipping
+        // downward. Bezier curves make the downward direction unambiguous
+        // (the previous arc version bulged upward and read like a mustache).
+        head.addSublayer(catMouth(cx: 16.5, top: 7.4, halfW: 3.4, dip: 2.4))
 
         // Whiskers
         for (wy, side) in [(CGFloat(11), CGFloat(-1)), (CGFloat(8), CGFloat(-1)),
@@ -759,6 +757,98 @@ final class Buddy {
             w.lineWidth = 0.9
             w.lineCap = .round
             head.addSublayer(w)
+        }
+
+        // Cat ears meet the crown around headGroup-y 26; perch hats/bows above.
+        addPetAccessory(headTopY: 27)
+    }
+
+    /// A cute double-dip "\u{203F}\u{203F}" pet mouth: two smile bumps that dip downward
+    /// from a shared high centre point, in head-local coords (y-up).
+    private func petMouth(cx: CGFloat, top: CGFloat, halfW: CGFloat, dip: CGFloat) -> CAShapeLayer {
+        let mouth = CAShapeLayer()
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: cx - halfW, y: top))
+        p.addQuadCurve(to: CGPoint(x: cx, y: top), control: CGPoint(x: cx - halfW / 2, y: top - dip))
+        p.addQuadCurve(to: CGPoint(x: cx + halfW, y: top), control: CGPoint(x: cx + halfW / 2, y: top - dip))
+        mouth.path = p
+        mouth.strokeColor = Theme.ink.cgColor
+        mouth.fillColor = nil
+        mouth.lineWidth = 1.3
+        mouth.lineCap = .round
+        mouth.lineJoin = .round
+        return mouth
+    }
+
+    private func catMouth(cx: CGFloat, top: CGFloat, halfW: CGFloat, dip: CGFloat) -> CAShapeLayer {
+        petMouth(cx: cx, top: top, halfW: halfW, dip: dip)
+    }
+
+    /// Draws the chosen dress-up accessory onto the head group (bow/hat) or
+    /// figure (bandana), in the coordinate spaces those layers use. Shared by
+    /// cat and dog. `earTopY` is the head-local y where the ears meet the
+    /// crown, so a hat/bow can perch just above it.
+    private func addPetAccessory(headTopY: CGFloat) {
+        let color = style.accessoryColor
+        switch style.petAccessory {
+        case .none:
+            break
+
+        case .bow:
+            // A ribbon bow perched near the top-right of the head (headGroup
+            // coords). Two triangular loops + a knot.
+            let bx: CGFloat = 22, by = headTopY
+            func loop(_ dir: CGFloat) -> CAShapeLayer {
+                let l = CAShapeLayer()
+                let p = CGMutablePath()
+                p.move(to: CGPoint(x: bx, y: by))
+                p.addLine(to: CGPoint(x: bx + dir * 8, y: by + 5))
+                p.addLine(to: CGPoint(x: bx + dir * 8, y: by - 5))
+                p.closeSubpath()
+                l.path = p
+                l.fillColor = color.cgColor
+                return l
+            }
+            headGroup.addSublayer(loop(-1))
+            headGroup.addSublayer(loop(1))
+            headGroup.addSublayer(ellipse(CGRect(x: bx - 2.5, y: by - 2.5, width: 5, height: 5), color))
+
+        case .hat:
+            // A little party cone hat sitting just above the crown.
+            let hx: CGFloat = 17
+            let base = headTopY + 1
+            let hat = CAShapeLayer()
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: hx - 8, y: base))
+            p.addLine(to: CGPoint(x: hx + 8, y: base))
+            p.addLine(to: CGPoint(x: hx, y: base + 15))
+            p.closeSubpath()
+            hat.path = p
+            hat.fillColor = color.cgColor
+            headGroup.addSublayer(hat)
+            // brim + pom-pom
+            headGroup.addSublayer(rounded(CGRect(x: hx - 9, y: base - 1.5, width: 18, height: 3.5), 1.75,
+                                          color.blended(withFraction: 0.25, of: .white) ?? color))
+            headGroup.addSublayer(ellipse(CGRect(x: hx - 2.5, y: base + 13, width: 5, height: 5),
+                                          color.blended(withFraction: 0.3, of: .white) ?? color))
+
+        case .bandana:
+            // A triangular neckerchief (figure coords): a point draping down
+            // the chest, finished with a tied band across the top at the
+            // collar line so it reads as knotted at the neck.
+            let bandana = CAShapeLayer()
+            bandana.frame = root.bounds
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 36, y: 31))
+            p.addLine(to: CGPoint(x: 52, y: 31))
+            p.addLine(to: CGPoint(x: 45, y: 19))
+            p.closeSubpath()
+            bandana.path = p
+            bandana.fillColor = color.cgColor
+            figure.addSublayer(bandana)
+            // the tied top band
+            figure.addSublayer(rounded(CGRect(x: 35, y: 30, width: 18, height: 4), 2,
+                                       color.blended(withFraction: 0.18, of: .black) ?? color))
         }
     }
 
@@ -843,31 +933,19 @@ final class Buddy {
                                  fur.blended(withFraction: 0.5, of: .white) ?? fur))
         head.addSublayer(ellipse(CGRect(x: 14, y: 9, width: 7, height: 5), NSColor(hex: 0x3A332C)))
 
-        // Mouth: same cute "\u{03C9}" as the cat, centered under the nose, with a
-        // small tongue peeking out from the middle junction (drawn first so
-        // the mouth line sits over its top edge). Replaces the old floating
-        // wide arc crossing over a big tongue blob.
-        let tongue = rounded(CGRect(x: 15.9, y: 4.2, width: 3.2, height: 4), 1.6, Theme.blush)
+        // Mouth: same cute double-dip smile as the cat, centered under the
+        // nose, with a little tongue peeking from the middle (drawn first so
+        // the mouth line sits over its top edge).
+        let tongue = rounded(CGRect(x: 15.9, y: 3.4, width: 3.2, height: 4), 1.6, Theme.blush)
         head.addSublayer(tongue)
-
-        let mouth = CAShapeLayer()
-        let mp = CGMutablePath()
-        mp.move(to: CGPoint(x: 13.5, y: 8))
-        mp.addArc(center: CGPoint(x: 15.5, y: 8), radius: 2,
-                  startAngle: .pi, endAngle: 0, clockwise: false)
-        mp.addArc(center: CGPoint(x: 19.5, y: 8), radius: 2,
-                  startAngle: .pi, endAngle: 0, clockwise: false)
-        mouth.path = mp
-        mouth.strokeColor = Theme.ink.cgColor
-        mouth.fillColor = nil
-        mouth.lineWidth = 1.2
-        mouth.lineCap = .round
-        mouth.lineJoin = .round
-        head.addSublayer(mouth)
+        head.addSublayer(petMouth(cx: 17.5, top: 7.4, halfW: 3.6, dip: 2.4))
 
         // Cheeks
         head.addSublayer(ellipse(CGRect(x: 4, y: 10, width: 5, height: 3.5), Theme.blush.withAlphaComponent(0.5)))
         head.addSublayer(ellipse(CGRect(x: 25, y: 10, width: 5, height: 3.5), Theme.blush.withAlphaComponent(0.5)))
+
+        // Dog crown is around headGroup-y 26; perch hats/bows above it.
+        addPetAccessory(headTopY: 26)
     }
 
     /// A small umbrella held up and to the right (canopy over the head, stick

@@ -41,6 +41,10 @@ enum Theme {
         0xFF6B2C, 0xF2C14E, 0x9DBE8D, 0x4E6E52, 0xBFD8F5,
         0x3B5BDB, 0xC9B8F0, 0xF09A8B, 0xF5F1E8, 0x2E2A26,
     ]
+    // Pet fur tones: white, cream, ginger, tan, grey, brown, near-black.
+    static let furTones: [UInt32] = [
+        0xF5F1E8, 0xE8D9C0, 0xE7A867, 0xC99A63, 0xA9A29B, 0x8D6E5C, 0x3A332C,
+    ]
 
     static func rounded(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
         let base = NSFont.systemFont(ofSize: size, weight: weight)

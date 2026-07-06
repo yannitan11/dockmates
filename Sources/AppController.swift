@@ -35,12 +35,9 @@ final class AppController: NSObject, NSApplicationDelegate {
             self?.openAsk(for: buddy)
         }
         overlay.onBuddyRightClicked = { [weak self] buddy in
-            // Pets aren't dressable; right-clicking one just gets a reaction.
-            if buddy.isPet {
-                self?.overlay.petReaction(buddy)
-            } else {
-                self?.openDressingRoom(for: buddy)
-            }
+            // Everyone (people and pets) is dressable via right-click; a plain
+            // left-click on a pet still just gets a happy reaction.
+            self?.openDressingRoom(for: buddy)
         }
         overlay.onTick = { [weak self] in
             self?.trackPanels()
@@ -181,8 +178,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func dressingRoomFromMenu() {
-        guard let person = overlay.buddies.first(where: { !$0.isPet }) else { return }
-        openDressingRoom(for: person)
+        guard let first = overlay.buddies.first else { return }
+        openDressingRoom(for: first)
     }
 
     @objc private func routinesFromMenu() {
@@ -200,10 +197,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         panel.onStyleChanged = { [weak self] in
             self?.saveStyles()
         }
-        // The dressing room only edits people; the pets have fixed looks.
-        let people = overlay.buddies.filter { !$0.isPet }
-        let index = people.firstIndex { $0 === buddy } ?? 0
-        panel.present(buddies: people, selected: index,
+        // Everyone is editable now; the panel shows person or pet controls
+        // per the selected dockmate's species.
+        let all = overlay.buddies
+        let index = all.firstIndex { $0 === buddy } ?? 0
+        panel.present(buddies: all, selected: index,
                       near: overlay.screenPoint(above: buddy))
     }
 
