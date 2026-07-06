@@ -30,6 +30,7 @@ struct BuddyStyle: Codable {
     var strollSpeed: CGFloat
     var species: Species = .person
     var petAccessory: PetAccessory = .none
+    var petCollar: Bool = true
 
     // For a pet, `outfit` = fur color, `neckColor` = collar color, and the
     // otherwise-unused `hat` = accessory color.
@@ -40,7 +41,7 @@ struct BuddyStyle: Codable {
     private enum CodingKeys: String, CodingKey {
         case name, skin, outfit, pants, shoes, hatKind, hat, hairKind, hair
         case bottomKind, topKind, glasses, neckKind, neckColor, hasTote, strollSpeed
-        case species, petAccessory
+        case species, petAccessory, petCollar
         case outfitDetail, scarfOn, scarf
     }
 
@@ -65,6 +66,7 @@ struct BuddyStyle: Codable {
         strollSpeed = try c.decode(CGFloat.self, forKey: .strollSpeed)
         species = try c.decodeIfPresent(Species.self, forKey: .species) ?? .person
         petAccessory = try c.decodeIfPresent(PetAccessory.self, forKey: .petAccessory) ?? .none
+        petCollar = try c.decodeIfPresent(Bool.self, forKey: .petCollar) ?? true
 
         if let top = try c.decodeIfPresent(TopKind.self, forKey: .topKind) {
             topKind = top
@@ -91,7 +93,7 @@ struct BuddyStyle: Codable {
          bottomKind: BottomKind = .pants, topKind: TopKind = .cardigan, glasses: Bool,
          neckKind: NeckKind = .none, neckColor: UInt32 = 0xF2C14E,
          hasTote: Bool, strollSpeed: CGFloat, species: Species = .person,
-         petAccessory: PetAccessory = .none) {
+         petAccessory: PetAccessory = .none, petCollar: Bool = true) {
         self.name = name
         self.skin = skin
         self.outfit = outfit
@@ -110,6 +112,7 @@ struct BuddyStyle: Codable {
         self.strollSpeed = strollSpeed
         self.species = species
         self.petAccessory = petAccessory
+        self.petCollar = petCollar
     }
 
     // Encode only the current fields; the legacy CodingKeys cases above
@@ -134,6 +137,7 @@ struct BuddyStyle: Codable {
         try c.encode(strollSpeed, forKey: .strollSpeed)
         try c.encode(species, forKey: .species)
         try c.encode(petAccessory, forKey: .petAccessory)
+        try c.encode(petCollar, forKey: .petCollar)
     }
 
     var skinColor: NSColor { NSColor(hex: skin) }
@@ -672,8 +676,10 @@ final class Buddy {
         body.addSublayer(rounded(CGRect(x: 8, y: 2, width: 22, height: 12), 6, bellyLight)) // light belly
         figure.addSublayer(body)
 
-        // Collar (a little band at the neck)
-        figure.addSublayer(rounded(CGRect(x: 36, y: 24, width: 16, height: 4), 2, style.neckColorValue))
+        // Collar (a little band at the neck), optional
+        if style.petCollar {
+            figure.addSublayer(rounded(CGRect(x: 36, y: 24, width: 16, height: 4), 2, style.neckColorValue))
+        }
 
         // Near legs (in front of the body), full color, with little paws
         for lx in [CGFloat(18), 42] {
@@ -795,9 +801,10 @@ final class Buddy {
             break
 
         case .bow:
-            // A ribbon bow perched near the top-right of the head (headGroup
-            // coords). Two triangular loops + a knot.
-            let bx: CGFloat = 22, by = headTopY
+            // A ribbon bow centered on top of the head (headGroup coords; 17
+            // is the head's horizontal center, same as the hat). Two
+            // triangular loops + a knot.
+            let bx: CGFloat = 17, by = headTopY
             func loop(_ dir: CGFloat) -> CAShapeLayer {
                 let l = CAShapeLayer()
                 let p = CGMutablePath()
@@ -891,8 +898,10 @@ final class Buddy {
         body.addSublayer(rounded(CGRect(x: 8, y: 2, width: 22, height: 12), 6, shade.withAlphaComponent(0.25)))
         figure.addSublayer(body)
 
-        // Collar
-        figure.addSublayer(rounded(CGRect(x: 36, y: 24, width: 16, height: 4), 2, style.neckColorValue))
+        // Collar (optional)
+        if style.petCollar {
+            figure.addSublayer(rounded(CGRect(x: 36, y: 24, width: 16, height: 4), 2, style.neckColorValue))
+        }
 
         // Near legs (in front), full color with paw shading
         for lx in [CGFloat(18), 42] {

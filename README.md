@@ -88,9 +88,9 @@ delete this project folder later.
   chunky side-profile pets that stroll, blink, and swish/wag their tails
   (the cat sways slowly; the dog wags fast). A left-click gets a happy
   "meow!" or "woof!" (pets don't run Claude tasks); right-click opens their
-  dressing room — fur color, collar color, and an accessory (bow, bandana,
-  or party hat) with its own color. Juno and Bo are the two people who can
-  talk to Claude.
+  dressing room — fur color, collar (on/off + color), and an accessory (bow,
+  bandana, or party hat) with its own color. Juno and Bo are the two people
+  who can talk to Claude.
 - **Choose who's on the dock:** menu bar → **On the dock** lists every
   dockmate (Juno, Bo, Mochi (cat), Tofu (dog)) with a check; toggle any on
   or off — e.g. keep just one pet, or none. The choice persists, and the

@@ -303,9 +303,16 @@ final class StylePanel: KeyPanel {
         addRow("Fur", Theme.furTones.map { hex in
             swatch(hex, selected: s.outfit == hex) { [weak self] in self?.apply { $0.outfit = hex } }
         })
-        addRow("Collar", Theme.clothing.map { hex in
-            swatch(hex, selected: s.neckColor == hex) { [weak self] in self?.apply { $0.neckColor = hex } }
-        })
+        addRow("Collar", [chip("on", selected: s.petCollar) { [weak self] in
+            self?.apply { $0.petCollar = true }
+        }, chip("off", selected: !s.petCollar) { [weak self] in
+            self?.apply { $0.petCollar = false }
+        }])
+        if s.petCollar {
+            addRow("Collar color", Theme.clothing.map { hex in
+                swatch(hex, selected: s.neckColor == hex) { [weak self] in self?.apply { $0.neckColor = hex } }
+            })
+        }
         addRow("Accessory", PetAccessory.allCases.map { kind in
             chip(kind.rawValue, selected: s.petAccessory == kind) { [weak self] in
                 self?.apply { $0.petAccessory = kind }
