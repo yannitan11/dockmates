@@ -419,13 +419,25 @@ final class OverlayController {
         CATransaction.commit()
     }
 
+    // How close to either end of a buddy's walkable range counts as "the
+    // extreme corner" for the drag-to-focus gesture below.
+    private let cornerZone: CGFloat = 28
+
     private func handleMouseUp(_ point: NSPoint) {
         guard let buddy = pressedBuddy else { return }
         if didDrag {
             buddy.endDrag()
             NSCursor.arrow.set()
+            let inCorner = buddy.x <= buddy.bounds.lowerBound + cornerZone
+                || buddy.x >= buddy.bounds.upperBound - cornerZone
+            // Dropping a buddy right at either end of the dock parks it
+            // there so it stops strolling and doesn't wander back into view
+            // while you're trying to focus; dropping it anywhere else lets
+            // it resume wandering normally.
+            buddy.wanderEnabled = !inCorner
             if !buddy.busy {
-                buddy.bubble.show(buddy.isPet ? petSound(buddy) : "wheee!", for: 1.4)
+                let line = buddy.isPet ? petSound(buddy) : (inCorner ? "parking here" : "wheee!")
+                buddy.bubble.show(line, for: 1.4)
             }
         } else if buddy.isPet {
             // A pet doesn't run Claude tasks; clicking it just gets a happy
