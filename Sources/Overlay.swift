@@ -954,4 +954,91 @@ enum SnapshotRenderer {
             fputs("snapshot: \(error.localizedDescription)\n", stderr)
         }
     }
+
+    /// Renders the macOS app icon: Juno and Bo on their dock ledge, inside a
+    /// squircle. `size` is the pixel dimension of the square PNG (e.g. 1024).
+    static func writeIcon(to path: String, size: Int) {
+        let s = CGFloat(size)
+        let canvas = CALayer()
+        canvas.frame = CGRect(x: 0, y: 0, width: s, height: s)
+
+        // Squircle mask (Big Sur-style corner radius is ~22.5% of the icon).
+        let radius = s * 0.225
+        let mask = CAShapeLayer()
+        mask.path = CGPath(roundedRect: canvas.frame, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        canvas.mask = mask
+
+        // Warm paper sky, lighter at top, with a soft accent glow behind the
+        // characters so it reads as "outdoors, golden hour" rather than flat.
+        let sky = CAGradientLayer()
+        sky.frame = canvas.frame
+        sky.colors = [
+            NSColor(hex: 0xFFF3E2).cgColor,
+            NSColor(hex: 0xFFE9CE).cgColor,
+            NSColor(hex: 0xFCDCB8).cgColor,
+        ]
+        sky.locations = [0, 0.55, 1]
+        canvas.addSublayer(sky)
+
+        let glow = CAGradientLayer()
+        glow.frame = canvas.frame
+        glow.type = .radial
+        glow.colors = [
+            Theme.accent.withAlphaComponent(0.28).cgColor,
+            Theme.accent.withAlphaComponent(0.0).cgColor,
+        ]
+        glow.startPoint = CGPoint(x: 0.5, y: 0.62)
+        glow.endPoint = CGPoint(x: 1.0, y: 1.0)
+        canvas.addSublayer(glow)
+
+        // The dock ledge the pair stand on, near the bottom edge.
+        let dockY = s * 0.30
+        let dock = CALayer()
+        dock.frame = CGRect(x: 0, y: 0, width: s, height: dockY)
+        dock.backgroundColor = NSColor(hex: 0xE7A867).cgColor
+        canvas.addSublayer(dock)
+        let plank = CALayer()
+        plank.frame = CGRect(x: 0, y: dockY - s * 0.018, width: s, height: s * 0.018)
+        plank.backgroundColor = NSColor(hex: 0xC9803F).cgColor
+        canvas.addSublayer(plank)
+        let waterline = CAGradientLayer()
+        waterline.frame = CGRect(x: 0, y: 0, width: s, height: dockY - s * 0.018)
+        waterline.colors = [NSColor(hex: 0xE7A867).cgColor, NSColor(hex: 0xD68F52).cgColor]
+        canvas.addSublayer(waterline)
+
+        // The two characters, big and centered, drawn with the app's own
+        // character-rendering code so the icon always matches the live art.
+        let zoom = s / 258
+        let bo = Buddy(style: .bo, scale: 3, feetY: dockY)
+        bo.x = s * 0.30
+        bo.facing = 1
+        let juno = Buddy(style: .juno, scale: 3, feetY: dockY)
+        juno.x = s * 0.72
+        juno.facing = -1
+        for buddy in [bo, juno] {
+            canvas.addSublayer(buddy.root)
+            buddy.forcePose(phase: 0.18, walk: 0)
+            // forcePose sets root.transform to just the facing flip, so the
+            // zoom has to be layered on afterwards. root's anchorPoint is
+            // (0.5, 0) — bottom-center at the feet — so this scales the
+            // character straight up from where its feet are already
+            // planted on the dock.
+            buddy.root.transform = CATransform3DMakeScale(buddy.facing * zoom, zoom, 1)
+        }
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: size, pixelsHigh: size,
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return }
+        rep.size = NSSize(width: s, height: s)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        canvas.render(in: ctx.cgContext)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("icon written to \(path)")
+    }
 }

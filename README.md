@@ -119,6 +119,20 @@ remove the `"hooks"` block from `~/.claude/settings.json`. New Claude Code
 sessions pick up the hooks automatically; an already-open session may need to
 be reopened.
 
+## App icon
+
+`Resources/icon_1024.png` is the master art — Juno and Bo on the dock ledge,
+rendered with the app's own `Buddy` character code so it always matches the
+live look. `build.sh` converts it to `Contents/Resources/AppIcon.icns` (all
+standard sizes via `sips`/`iconutil`) on every build; `Info.plist` points at
+it via `CFBundleIconFile`. To change the art, regenerate the master and
+rebuild:
+
+```bash
+build/Dockmates.app/Contents/MacOS/Dockmates --icon Resources/icon_1024.png 1024
+./install.sh
+```
+
 ## Design review mode
 
 Renders the characters to a PNG without launching the app — handy for iterating

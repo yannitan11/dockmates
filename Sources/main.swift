@@ -107,6 +107,13 @@ if let index = CommandLine.arguments.firstIndex(of: "--snapshot-routines"),
     SnapshotRenderer.writeRoutinePanel(to: CommandLine.arguments[index + 1])
     exit(0)
 }
+// Usage: Dockmates --icon /path/to/out.png [size]  (size defaults to 1024)
+if let index = CommandLine.arguments.firstIndex(of: "--icon"),
+   CommandLine.arguments.count > index + 1 {
+    let size = CommandLine.arguments.count > index + 2 ? Int(CommandLine.arguments[index + 2]) ?? 1024 : 1024
+    SnapshotRenderer.writeIcon(to: CommandLine.arguments[index + 1], size: size)
+    exit(0)
+}
 
 // Debug: check how free text parses into a reminder.
 // Usage: Dockmates --parse "remind me to drink water every 30 mins"
