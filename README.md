@@ -73,12 +73,15 @@ delete this project folder later.
   (`UserDefaults`); Reset restores the original look.
 - **Claude Code watch:** the buddies nudge you when a Claude Code session
   finishes a turn or needs your attention (a permission prompt or waiting for
-  input), so you can tab back. A buddy hops with a bubble, and a macOS
+  input), so you can tab back. A buddy hops with a bubble naming the project
+  that wrapped up ("dockmates is done!") when it can tell, and a macOS
   notification fires too (useful when you're in a fullscreen app and the dock
   is hidden). It only nudges when Claude Code **isn't** the app you're already
-  looking at, so it stays quiet while you're actively using it. Toggle it from
-  the menu bar ("Notify me about Claude Code"). See "Claude Code hooks" below
-  for the one-time setup this relies on.
+  looking at, so it stays quiet while you're actively using it. Sessions that
+  finish while you're away stack up as a little red badge on the buddy that
+  nudged you; it clears when you click a buddy or switch back to Claude Code.
+  Toggle the whole feature from the menu bar ("Notify me about Claude Code").
+  See "Claude Code hooks" below for the one-time setup this relies on.
 - **Routines** (menu bar → Routines): little recurring nudges. "Drink water
   every 1h", "exercise at 6:00 pm". When one fires, a free buddy hops and says
   it in a speech bubble. Toggle reminders on/off or delete them; everything
@@ -103,21 +106,61 @@ delete this project folder later.
 
 ## Claude Code hooks (for the Claude Code watch feature)
 
-The "come back to Claude" nudge relies on Claude Code telling Dockmates when
-something happens. That's wired up via two hooks in your global
-`~/.claude/settings.json`:
+The "come back to Claude" nudge, the project name in it ("**dockmates** is
+done!"), and the unread-count badge on a buddy all rely on Claude Code
+telling Dockmates when something happens. That's wired up via two hooks in
+your global `~/.claude/settings.json` — merge this into the `"hooks"` block
+(creating the file if it doesn't exist):
 
-- **Stop** hook → appends a `stop` line to `~/.dockmates/events.log` when a
-  session finishes a turn.
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p ~/.dockmates && p=$(jq -r '.cwd // \"\" | split(\"/\") | last // \"\"' 2>/dev/null | tr '\\n\\t' '  '); printf 'stop\\t%s\\t%s\\n' \"$(date +%s)\" \"$p\" >> ~/.dockmates/events.log 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p ~/.dockmates && msg=$(jq -r '.message // empty' | tr '\\n\\t' '  '); printf 'notify\\t%s\\t%s\\n' \"$(date +%s)\" \"$msg\" >> ~/.dockmates/events.log 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- **Stop** hook → appends a `stop` line (timestamp + the session's project
+  folder name, read from the hook's `cwd` field) to `~/.dockmates/events.log`
+  when a session finishes a turn. The project name is what lets the nudge say
+  which project wrapped up instead of a generic "Claude's all done!"; if it's
+  missing (e.g. an older hook, or `jq` not installed) Dockmates falls back to
+  the generic message.
 - **Notification** hook → appends a `notify` line (with the message) when
   Claude Code needs permission or is waiting for input.
+
+Both commands use `jq` to parse the hook's JSON input; it isn't bundled with
+macOS, so install it first with `brew install jq` if you don't already have
+it (`which jq` to check). Without `jq` the hooks still run (`|| true` keeps
+them from erroring) but the project name and notification message are lost.
 
 Dockmates tails that log and nudges you. The hooks only write a line to a file;
 they change nothing else. To turn the feature off entirely, either uncheck
 "Notify me about Claude Code" in the menu (keeps the hooks but ignores them) or
 remove the `"hooks"` block from `~/.claude/settings.json`. New Claude Code
 sessions pick up the hooks automatically; an already-open session may need to
-be reopened.
+be reopened (or run `/hooks` in it to reload).
 
 ## App icon
 
