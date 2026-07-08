@@ -209,7 +209,11 @@ final class Buddy {
     private var armR = CAShapeLayer()
     private let headGroup = CALayer()
     private var eyes: [CAShapeLayer] = []
-    private var umbrella: CALayer?
+    private var raincoatPieces: [CALayer] = []
+    /// The pet's dress-up accessory layers (bow/hat/bandana). Tracked so the
+    /// umbrella can take their place while it's raining, then hand the head
+    /// back when it clears up.
+    private var petAccessoryPieces: [CALayer] = []
     private var raining = false
     private var catLegs: [CAShapeLayer] = []
     private var catTail: CAShapeLayer?
@@ -282,7 +286,8 @@ final class Buddy {
         eyes = []
         catLegs = []
         catTail = nil
-        umbrella = nil
+        raincoatPieces = []
+        petAccessoryPieces = []
         deskProps = nil
         stoolProps = nil
         badgeLayer = nil
@@ -337,9 +342,17 @@ final class Buddy {
         // whole left side reads as nearer to match the in-front left arm.
         legL = rounded(CGRect(x: wearsSkirt ? 22 : 20, y: 0, width: legWidth, height: 32), 6, legColor)
         legR = rounded(CGRect(x: wearsSkirt ? 38 : 37, y: 0, width: legWidth, height: 32), 6, farLeg)
-        for (leg, shoeColor) in [(legL, style.shoesColor), (legR, farShoes)] {
+        let coatLegColors = [Theme.mustard, Theme.mustard.blended(withFraction: 0.14, of: .black) ?? Theme.mustard]
+        for (i, (leg, shoeColor)) in [(legL, style.shoesColor), (legR, farShoes)].enumerated() {
             let shoe = rounded(CGRect(x: -2, y: -2, width: 19, height: 9), 4.5, shoeColor)
             leg.addSublayer(shoe)
+            // Raincoat hem: covers the leg down to just above the shoe, so
+            // the coat reads as full-length while feet stay visible. Rides
+            // on the leg layer itself so it swings with the walk cycle.
+            let coatHem = rounded(CGRect(x: 0, y: 6, width: legWidth, height: 26), 6, coatLegColors[i])
+            coatHem.isHidden = !raining
+            leg.addSublayer(coatHem)
+            raincoatPieces.append(coatHem)
             setAnchor(leg, CGPoint(x: 0.5, y: 0.95))
             figure.addSublayer(leg)
         }
@@ -378,6 +391,19 @@ final class Buddy {
         armL = buildArm(x: 6, sleeveColor: style.outfitColor, skinTone: style.skinColor)
         armR = buildArm(x: 52, sleeveColor: farOutfit, skinTone: farSkin)
         figure.addSublayer(armR)  // far arm, behind the torso
+
+        // Raincoat sleeves: full-coverage overlays riding on the arm layers
+        // themselves (not a separate static shape), so they swing correctly
+        // with the walk animation instead of floating in place.
+        let coatSleeveNear = rounded(CGRect(x: 0, y: 0, width: 12, height: 30), 6, Theme.mustard)
+        let coatSleeveFar = rounded(CGRect(x: 0, y: 0, width: 12, height: 30), 6,
+                                     Theme.mustard.blended(withFraction: 0.14, of: .black) ?? Theme.mustard)
+        coatSleeveNear.isHidden = !raining
+        coatSleeveFar.isHidden = !raining
+        armL.addSublayer(coatSleeveNear)
+        armR.addSublayer(coatSleeveFar)
+        raincoatPieces.append(coatSleeveNear)
+        raincoatPieces.append(coatSleeveFar)
 
         // A-line skirt over the legs, tucked under the torso
         if wearsSkirt {
@@ -422,6 +448,19 @@ final class Buddy {
             torso.addSublayer(rounded(CGRect(x: 33, y: 38, width: 6, height: 16), 3, style.outfitColor))
         }
 
+        // Raincoat body: a full coat overlay over the outfit, added right
+        // after the torso (so the near arm still swings in front of it, same
+        // as the torso itself) with a center zip and a couple of snaps.
+        let coatBody = rounded(CGRect(x: 11, y: 26, width: 48, height: 48), 15, Theme.mustard)
+        let coatSeam = Theme.mustard.blended(withFraction: 0.18, of: .black) ?? Theme.mustard
+        coatBody.addSublayer(rounded(CGRect(x: 33, y: 6, width: 2, height: 40), 1, coatSeam))
+        for y: CGFloat in [12, 24, 36] {
+            coatBody.addSublayer(ellipse(CGRect(x: 31, y: y, width: 4, height: 4), coatSeam))
+        }
+        coatBody.isHidden = !raining
+        figure.addSublayer(coatBody)
+        raincoatPieces.append(coatBody)
+
         // Near (left) arm renders in front of the torso, so its forward swing
         // crosses the body instead of hiding behind it.
         figure.addSublayer(armL)
@@ -465,6 +504,13 @@ final class Buddy {
             figure.addSublayer(wing(flip: 1))
             figure.addSublayer(ellipse(CGRect(x: 32, y: 62, width: 6, height: 6), bowColor))
         }
+
+        // Raincoat collar: sits over any neck accessory, behind the head
+        // (the head renders on top, in front of the collar's upper edge).
+        let collar = rounded(CGRect(x: 16, y: 63, width: 38, height: 14), 7, Theme.mustard)
+        collar.isHidden = !raining
+        figure.addSublayer(collar)
+        raincoatPieces.append(collar)
 
         // Head group (tilts while thinking)
         headGroup.frame = CGRect(x: 12, y: 70, width: 46, height: 48)
@@ -614,6 +660,24 @@ final class Buddy {
             }
         }
 
+        // Raincoat hood: a big coat-colored dome drawn on top of the hair,
+        // hat, and everything else in the head group, with a face-shaped
+        // cutout (even-odd fill) so eyes/mouth/glasses still show through.
+        // Because it's added last and generously oversized, it naturally
+        // covers any hat/hair silhouette without needing to hide them.
+        let hood = CAShapeLayer()
+        hood.frame = headGroup.bounds
+        let hoodPath = CGMutablePath()
+        hoodPath.addPath(CGPath(roundedRect: CGRect(x: -3, y: -5, width: 52, height: 56),
+                                 cornerWidth: 23, cornerHeight: 23, transform: nil))
+        hoodPath.addPath(CGPath(ellipseIn: CGRect(x: 6, y: 3, width: 34, height: 34), transform: nil))
+        hood.path = hoodPath
+        hood.fillRule = .evenOdd
+        hood.fillColor = Theme.mustard.cgColor
+        hood.isHidden = !raining
+        headGroup.addSublayer(hood)
+        raincoatPieces.append(hood)
+
         // Tote bag in front
         if style.hasTote {
             let strap = CAShapeLayer()
@@ -643,13 +707,6 @@ final class Buddy {
             bag.addSublayer(bagSmile)
             figure.addSublayer(bag)
         }
-
-        // Rain umbrella, held up and to the side, hidden unless it's raining.
-        // Added last so it renders over everything else.
-        let umb = buildUmbrella()
-        umb.isHidden = !raining
-        figure.addSublayer(umb)
-        umbrella = umb
     }
 
     // MARK: - Cat art
@@ -784,6 +841,7 @@ final class Buddy {
 
         // Cat ears meet the crown around headGroup-y 26; perch hats/bows above.
         addPetAccessory(headTopY: 27)
+        addPetRaincoat(headTopY: 27)
     }
 
     /// A cute double-dip "\u{203F}\u{203F}" pet mouth: two smile bumps that dip downward
@@ -813,6 +871,13 @@ final class Buddy {
     /// crown, so a hat/bow can perch just above it.
     private func addPetAccessory(headTopY: CGFloat) {
         let color = style.accessoryColor
+        // While it's raining the umbrella takes over the head, so every
+        // accessory piece starts hidden and is restored by setRaining.
+        func place(_ layer: CALayer, on parent: CALayer) {
+            layer.isHidden = raining
+            parent.addSublayer(layer)
+            petAccessoryPieces.append(layer)
+        }
         switch style.petAccessory {
         case .none:
             break
@@ -833,9 +898,9 @@ final class Buddy {
                 l.fillColor = color.cgColor
                 return l
             }
-            headGroup.addSublayer(loop(-1))
-            headGroup.addSublayer(loop(1))
-            headGroup.addSublayer(ellipse(CGRect(x: bx - 2.5, y: by - 2.5, width: 5, height: 5), color))
+            place(loop(-1), on: headGroup)
+            place(loop(1), on: headGroup)
+            place(ellipse(CGRect(x: bx - 2.5, y: by - 2.5, width: 5, height: 5), color), on: headGroup)
 
         case .hat:
             // A little party cone hat sitting just above the crown.
@@ -849,12 +914,12 @@ final class Buddy {
             p.closeSubpath()
             hat.path = p
             hat.fillColor = color.cgColor
-            headGroup.addSublayer(hat)
+            place(hat, on: headGroup)
             // brim + pom-pom
-            headGroup.addSublayer(rounded(CGRect(x: hx - 9, y: base - 1.5, width: 18, height: 3.5), 1.75,
-                                          color.blended(withFraction: 0.25, of: .white) ?? color))
-            headGroup.addSublayer(ellipse(CGRect(x: hx - 2.5, y: base + 13, width: 5, height: 5),
-                                          color.blended(withFraction: 0.3, of: .white) ?? color))
+            place(rounded(CGRect(x: hx - 9, y: base - 1.5, width: 18, height: 3.5), 1.75,
+                                 color.blended(withFraction: 0.25, of: .white) ?? color), on: headGroup)
+            place(ellipse(CGRect(x: hx - 2.5, y: base + 13, width: 5, height: 5),
+                                 color.blended(withFraction: 0.3, of: .white) ?? color), on: headGroup)
 
         case .bandana:
             // A triangular neckerchief (figure coords): a point draping down
@@ -869,11 +934,65 @@ final class Buddy {
             p.closeSubpath()
             bandana.path = p
             bandana.fillColor = color.cgColor
-            figure.addSublayer(bandana)
+            place(bandana, on: figure)
             // the tied top band
-            figure.addSublayer(rounded(CGRect(x: 35, y: 30, width: 18, height: 4), 2,
-                                       color.blended(withFraction: 0.18, of: .black) ?? color))
+            place(rounded(CGRect(x: 35, y: 30, width: 18, height: 4), 2,
+                                 color.blended(withFraction: 0.18, of: .black) ?? color), on: figure)
         }
+    }
+
+    /// A little umbrella perched above the crown, clear of the ears, hidden
+    /// unless it's raining. Shared by cat and dog. While it's up it takes the
+    /// place of whatever accessory the pet normally wears (see setRaining), so
+    /// the head reads clearly as "carrying an umbrella" rather than a hat: a
+    /// wide, panelled canopy in the bold accent colour with a scalloped rim
+    /// and a finial spike + knob on top.
+    /// A little rain slicker for the pet: a bright coat draped over the back
+    /// with a turned-up collar, plus a hood framing the face (covering the
+    /// ears the way the person's hood covers hair). Shared by cat and dog and
+    /// hidden unless it's raining; while it's up it stands in for the pet's
+    /// usual head accessory (see setRaining). The coat sits behind the head so
+    /// the face stays clear; the hood rides on top of it. `headTopY` is unused
+    /// now but kept so both species call it the same way.
+    private func addPetRaincoat(headTopY: CGFloat) {
+        let cloth = Theme.mustard
+        let trim = (cloth.blended(withFraction: 0.22, of: .black) ?? cloth)
+
+        // Coat pieces go behind the head group so the face and muzzle stay
+        // clear; they still ride in front of the body and near legs.
+        func drape(_ layer: CALayer) {
+            layer.isHidden = !raining
+            figure.insertSublayer(layer, below: headGroup)
+            raincoatPieces.append(layer)
+        }
+
+        // Coat body: a rounded slicker over the back (figure coords). Its
+        // bottom edge sits partway down the body — covering the torso while
+        // leaving a good length of leg showing below.
+        drape(rounded(CGRect(x: 6, y: 12, width: 47, height: 25), 11, cloth))
+        // Hem: a darker band along the bottom edge so it reads as a garment
+        // rather than recoloured fur.
+        drape(rounded(CGRect(x: 6, y: 12, width: 47, height: 4), 2, trim))
+        // Turned-up collar at the neck, by the head.
+        drape(rounded(CGRect(x: 42, y: 26, width: 12, height: 10), 4, cloth))
+
+        // Hood: a coat-coloured frame over the top and sides of the head with
+        // an opening for the face (headGroup coords, evenOdd cut-out). Rides on
+        // top of the head so it tucks the ears in.
+        let hood = CAShapeLayer()
+        hood.frame = headGroup.bounds
+        let hp = CGMutablePath()
+        hp.addPath(CGPath(roundedRect: CGRect(x: -4, y: -2, width: 42, height: 40),
+                          cornerWidth: 18, cornerHeight: 18, transform: nil))
+        hp.addPath(CGPath(ellipseIn: CGRect(x: 3, y: 3, width: 28, height: 24), transform: nil))
+        hood.path = hp
+        hood.fillRule = .evenOdd
+        hood.fillColor = cloth.cgColor
+        hood.strokeColor = trim.cgColor
+        hood.lineWidth = 1
+        hood.isHidden = !raining
+        headGroup.addSublayer(hood)
+        raincoatPieces.append(hood)
     }
 
     // MARK: - Dog art
@@ -972,75 +1091,7 @@ final class Buddy {
 
         // Dog crown is around headGroup-y 26; perch hats/bows above it.
         addPetAccessory(headTopY: 26)
-    }
-
-    /// A small umbrella held up and to the right (canopy over the head, stick
-    /// down to the right hand), so it shelters the head without the stick
-    /// crossing the face.
-    private func buildUmbrella() -> CALayer {
-        let group = CALayer()
-        group.frame = root.bounds
-
-        let canopyColor = NSColor(hex: 0xE0574E)
-        let panelColor = canopyColor.blended(withFraction: 0.16, of: .white) ?? canopyColor
-        let cx: CGFloat = 39
-        let baseY: CGFloat = 118
-        let halfW: CGFloat = 28
-        let topY: CGFloat = 133
-
-        // Canopy: a shallow dome with a scalloped lower edge for an umbrella feel
-        let canopy = CAShapeLayer()
-        canopy.frame = root.bounds
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: cx - halfW, y: baseY))
-        path.addQuadCurve(to: CGPoint(x: cx + halfW, y: baseY),
-                          control: CGPoint(x: cx, y: topY + 10))
-        let scallops = 4
-        for i in stride(from: scallops - 1, through: 0, by: -1) {
-            let x0 = cx - halfW + CGFloat(i) * (halfW * 2 / CGFloat(scallops))
-            let x1 = x0 + (halfW * 2 / CGFloat(scallops))
-            path.addQuadCurve(to: CGPoint(x: x0, y: baseY),
-                              control: CGPoint(x: (x0 + x1) / 2, y: baseY - 4))
-        }
-        path.closeSubpath()
-        canopy.path = path
-        canopy.fillColor = canopyColor.cgColor
-        group.addSublayer(canopy)
-
-        // A couple of lighter panel seams for depth
-        for dx in [-halfW * 0.5, halfW * 0.5] {
-            let seam = CAShapeLayer()
-            let sp = CGMutablePath()
-            sp.move(to: CGPoint(x: cx + dx, y: baseY))
-            sp.addLine(to: CGPoint(x: cx + dx * 0.35, y: topY + 4))
-            seam.path = sp
-            seam.strokeColor = panelColor.cgColor
-            seam.lineWidth = 1.4
-            group.addSublayer(seam)
-        }
-
-        // Ferrule nub on top
-        group.addSublayer(rounded(CGRect(x: cx - 1.2, y: topY - 1, width: 2.4, height: 6), 1.2,
-                                  NSColor(hex: 0x6B5B4E)))
-
-        // Stick runs straight down the RIGHT side to the right hand, staying
-        // clear of the head (which reaches x~53) so it never crosses the face,
-        // ending in a little J-hook handle. It attaches to the canopy's right
-        // underside rather than dead center.
-        let stick = CAShapeLayer()
-        let stickPath = CGMutablePath()
-        stickPath.move(to: CGPoint(x: 55, y: baseY - 3))
-        stickPath.addLine(to: CGPoint(x: 55, y: 40))
-        stickPath.addQuadCurve(to: CGPoint(x: 50, y: 37), control: CGPoint(x: 55, y: 35))
-        stick.path = stickPath
-        stick.strokeColor = NSColor(hex: 0x6B5B4E).cgColor
-        stick.fillColor = nil
-        stick.lineWidth = 2.4
-        stick.lineCap = .round
-        stick.lineJoin = .round
-        group.addSublayer(stick)
-
-        return group
+        addPetRaincoat(headTopY: 26)
     }
 
     // MARK: - Unattended-session badge
@@ -1082,16 +1133,24 @@ final class Buddy {
     }
 
     /// Show or hide the umbrella when the weather starts or stops raining.
+    /// While it's raining the umbrella stands in for the pet's usual head
+    /// accessory, so those pieces hide as the umbrella appears and come back
+    /// when it clears.
     func setRaining(_ value: Bool) {
         guard value != raining else { return }
         raining = value
-        umbrella?.isHidden = !value
-        if value, let umbrella {
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0
-            fade.toValue = 1
-            fade.duration = 0.25
-            umbrella.add(fade, forKey: "fade")
+        for piece in petAccessoryPieces {
+            piece.isHidden = value
+        }
+        for piece in raincoatPieces {
+            piece.isHidden = !value
+            if value {
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0
+                fade.toValue = 1
+                fade.duration = 0.25
+                piece.add(fade, forKey: "fade")
+            }
         }
     }
 

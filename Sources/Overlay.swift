@@ -298,7 +298,7 @@ final class OverlayController {
         for buddy in buddies {
             buddy.tick(dt: dt, now: now)
             buddy.bubble.layer.position = CGPoint(x: buddy.x, y: buddy.bubbleY)
-            buddy.setRaining(raining)  // pops the umbrella when it's wet out
+            buddy.setRaining(raining)  // switches to raincoats when it's wet out
 
             if buddy.mode == .think {
                 let elapsed = buddy.thinkElapsed
@@ -590,6 +590,7 @@ enum SnapshotRenderer {
                 s.petAccessory = acc
                 let pet = Buddy(style: s, scale: 3, feetY: 20)
                 pet.x = x
+                pet.setRaining(true)
                 stage.addSublayer(pet.root)
                 pet.forcePose(phase: 0, walk: 0)
                 pet.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
